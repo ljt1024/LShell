@@ -1,0 +1,223 @@
+import { useCallback, useRef, useState } from "react";
+import { downloadBase64File, fileToBase64 } from "../services/encoding";
+import type { ClientMessage, ConnectionStatus, FileInfo, ServerConfig, ServerMessage } from "../types/protocol";
+
+type TerminalWriter = (data: string) => void;
+
+export function useWebShell() {
+  const socketRef = useRef<WebSocket | null>(null);
+  const terminalWriterRef = useRef<TerminalWriter | null>(null);
+  const currentPathRef = useRef("/");
+
+  const [status, setStatus] = useState<ConnectionStatus>("idle");
+  const [sessionId, setSessionId] = useState<string>();
+  const [connectionName, setConnectionName] = useState<string>();
+  const [error, setError] = useState<string>();
+  const [files, setFiles] = useState<FileInfo[]>([]);
+  const [currentPath, setCurrentPath] = useState("/");
+  const [activeFilePath, setActiveFilePath] = useState<string>();
+  const [fileContent, setFileContent] = useState("");
+  const [dirty, setDirty] = useState(false);
+
+  const send = useCallback((message: ClientMessage) => {
+    const socket = socketRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      setError("WebSocket 尚未连接");
+      return;
+    }
+    socket.send(JSON.stringify(message));
+  }, []);
+
+  const listFiles = useCallback(
+    (path = currentPathRef.current) => {
+      send({ type: "file.list", path });
+    },
+    [send]
+  );
+
+  const handleMessage = useCallback(
+    (message: ServerMessage) => {
+      switch (message.type) {
+        case "connection.status":
+          setStatus(message.status);
+          if (message.message) {
+            setError(undefined);
+          }
+          break;
+        case "connection.ready":
+          setSessionId(message.sessionId);
+          setConnectionName(message.name);
+          setStatus("connected");
+          listFiles("/");
+          break;
+        case "terminal.output":
+          terminalWriterRef.current?.(message.data);
+          break;
+        case "terminal.closed":
+          terminalWriterRef.current?.("\r\n[terminal closed]\r\n");
+          break;
+        case "file.list":
+          currentPathRef.current = message.path;
+          setCurrentPath(message.path);
+          setFiles(message.files);
+          break;
+        case "file.read":
+          setActiveFilePath(message.path);
+          setFileContent(message.content);
+          setDirty(false);
+          break;
+        case "file.saved":
+          setDirty(false);
+          listFiles(currentPathRef.current);
+          break;
+        case "file.uploaded":
+        case "action.done":
+          listFiles(currentPathRef.current);
+          break;
+        case "file.download":
+          downloadBase64File(message.fileName, message.contentBase64);
+          break;
+        case "error":
+          setStatus((previous) => (previous === "connecting" ? "error" : previous));
+          setError(message.message);
+          terminalWriterRef.current?.(`\r\n[error] ${message.message}\r\n`);
+          break;
+      }
+    },
+    [listFiles]
+  );
+
+  const connect = useCallback(
+    (config: ServerConfig) => {
+      socketRef.current?.close();
+      setStatus("connecting");
+      setError(undefined);
+      setFiles([]);
+      setActiveFilePath(undefined);
+      setFileContent("");
+      setDirty(false);
+
+      const socket = new WebSocket(resolveWebSocketUrl());
+      socketRef.current = socket;
+
+      socket.onopen = () => {
+        socket.send(JSON.stringify({ type: "connection.connect", config } satisfies ClientMessage));
+      };
+
+      socket.onmessage = (event) => {
+        handleMessage(JSON.parse(event.data) as ServerMessage);
+      };
+
+      socket.onerror = () => {
+        setStatus("error");
+        setError("WebSocket 连接失败");
+      };
+
+      socket.onclose = () => {
+        setStatus((previous) => (previous === "connected" || previous === "connecting" ? "disconnected" : previous));
+      };
+    },
+    [handleMessage]
+  );
+
+  const disconnect = useCallback(() => {
+    send({ type: "connection.disconnect" });
+    socketRef.current?.close();
+    socketRef.current = null;
+    setSessionId(undefined);
+    setConnectionName(undefined);
+    setFiles([]);
+    setStatus("disconnected");
+  }, [send]);
+
+  const registerTerminalWriter = useCallback((writer: TerminalWriter) => {
+    terminalWriterRef.current = writer;
+    return () => {
+      if (terminalWriterRef.current === writer) {
+        terminalWriterRef.current = null;
+      }
+    };
+  }, []);
+
+  const updateFileContent = useCallback((content: string) => {
+    setFileContent(content);
+    setDirty(true);
+  }, []);
+
+  const uploadFile = useCallback(
+    async (file: File) => {
+      const contentBase64 = await fileToBase64(file);
+      send({ type: "file.upload", directory: currentPathRef.current, fileName: file.name, contentBase64 });
+    },
+    [send]
+  );
+
+  const openTerminal = useCallback(
+    (cols: number, rows: number) => send({ type: "terminal.open", cols, rows }),
+    [send]
+  );
+
+  const sendTerminalInput = useCallback((data: string) => send({ type: "terminal.input", data }), [send]);
+
+  const resizeTerminal = useCallback(
+    (cols: number, rows: number) => send({ type: "terminal.resize", cols, rows }),
+    [send]
+  );
+
+  const readFile = useCallback((path: string) => send({ type: "file.read", path }), [send]);
+
+  const saveFile = useCallback(() => {
+    if (activeFilePath) {
+      send({ type: "file.write", path: activeFilePath, content: fileContent });
+    }
+  }, [activeFilePath, fileContent, send]);
+
+  const closeEditor = useCallback(() => {
+    setActiveFilePath(undefined);
+    setFileContent("");
+    setDirty(false);
+  }, []);
+
+  const mkdir = useCallback((path: string) => send({ type: "file.mkdir", path }), [send]);
+  const remove = useCallback((path: string) => send({ type: "file.remove", path }), [send]);
+  const rename = useCallback((oldPath: string, newPath: string) => send({ type: "file.rename", oldPath, newPath }), [send]);
+  const downloadFile = useCallback((path: string) => send({ type: "file.download", path }), [send]);
+
+  return {
+    status,
+    sessionId,
+    connectionName,
+    error,
+    files,
+    currentPath,
+    activeFilePath,
+    fileContent,
+    dirty,
+    connect,
+    disconnect,
+    registerTerminalWriter,
+    openTerminal,
+    sendTerminalInput,
+    resizeTerminal,
+    listFiles,
+    readFile,
+    saveFile,
+    closeEditor,
+    updateFileContent,
+    mkdir,
+    remove,
+    rename,
+    uploadFile,
+    downloadFile,
+    clearError: () => setError(undefined)
+  };
+}
+
+function resolveWebSocketUrl(): string {
+  const explicitUrl = import.meta.env.VITE_WS_URL as string | undefined;
+  if (explicitUrl) {
+    return explicitUrl;
+  }
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${protocol}//${window.location.host}/ws`;
+}
