@@ -218,6 +218,11 @@ function resolveWebSocketUrl(): string {
   if (explicitUrl) {
     return explicitUrl;
   }
+
+  if (import.meta.env.DEV && ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname)) {
+    return "ws://127.0.0.1:8080/ws";
+  }
+
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${protocol}//${window.location.host}/ws`;
 }
