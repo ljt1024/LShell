@@ -1,8 +1,16 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { downloadBase64File, fileToBase64 } from "../services/encoding";
 import type { ClientMessage, ConnectionStatus, FileInfo, ServerConfig, ServerMessage } from "../types/protocol";
 
 type TerminalWriter = (data: string) => void;
+
+const PERSISTED_SESSION_KEY = "lshell-active-session";
+
+interface PersistedSession {
+  sessionId: string;
+  name: string;
+  currentPath: string;
+}
 
 export function useWebShell() {
   const socketRef = useRef<WebSocket | null>(null);
@@ -48,7 +56,12 @@ export function useWebShell() {
           setSessionId(message.sessionId);
           setConnectionName(message.name);
           setStatus("connected");
-          listFiles("/");
+          persistSession({
+            sessionId: message.sessionId,
+            name: message.name,
+            currentPath: currentPathRef.current
+          });
+          listFiles(currentPathRef.current);
           break;
         case "terminal.output":
           terminalWriterRef.current?.(message.data);
@@ -60,6 +73,7 @@ export function useWebShell() {
           currentPathRef.current = message.path;
           setCurrentPath(message.path);
           setFiles(message.files);
+          updatePersistedSession({ currentPath: message.path });
           break;
         case "file.read":
           setActiveFilePath(message.path);
@@ -80,6 +94,12 @@ export function useWebShell() {
         case "error":
           setStatus((previous) => (previous === "connecting" ? "error" : previous));
           setError(message.message);
+          if (message.requestType === "connection.attach") {
+            clearPersistedSession();
+            setSessionId(undefined);
+            setConnectionName(undefined);
+            setStatus("disconnected");
+          }
           terminalWriterRef.current?.(`\r\n[error] ${message.message}\r\n`);
           break;
       }
@@ -87,22 +107,18 @@ export function useWebShell() {
     [listFiles]
   );
 
-  const connect = useCallback(
-    (config: ServerConfig) => {
-      socketRef.current?.close();
-      setStatus("connecting");
-      setError(undefined);
-      setFiles([]);
-      setActiveFilePath(undefined);
-      setFileContent("");
-      setDirty(false);
+  const openSocket = useCallback(
+    (onOpen: (socket: WebSocket) => void) => {
+      const previousSocket = socketRef.current;
+      if (previousSocket) {
+        previousSocket.onclose = null;
+        previousSocket.close();
+      }
 
       const socket = new WebSocket(resolveWebSocketUrl());
       socketRef.current = socket;
 
-      socket.onopen = () => {
-        socket.send(JSON.stringify({ type: "connection.connect", config } satisfies ClientMessage));
-      };
+      socket.onopen = () => onOpen(socket);
 
       socket.onmessage = (event) => {
         handleMessage(JSON.parse(event.data) as ServerMessage);
@@ -114,13 +130,36 @@ export function useWebShell() {
       };
 
       socket.onclose = () => {
+        if (socketRef.current !== socket) {
+          return;
+        }
         setStatus((previous) => (previous === "connected" || previous === "connecting" ? "disconnected" : previous));
       };
     },
     [handleMessage]
   );
 
+  const connect = useCallback(
+    (config: ServerConfig) => {
+      setStatus("connecting");
+      setError(undefined);
+      setFiles([]);
+      setActiveFilePath(undefined);
+      setFileContent("");
+      setDirty(false);
+      currentPathRef.current = "/";
+      setCurrentPath("/");
+      clearPersistedSession();
+
+      openSocket((socket) => {
+        socket.send(JSON.stringify({ type: "connection.connect", config } satisfies ClientMessage));
+      });
+    },
+    [openSocket]
+  );
+
   const disconnect = useCallback(() => {
+    clearPersistedSession();
     send({ type: "connection.disconnect" });
     socketRef.current?.close();
     socketRef.current = null;
@@ -129,6 +168,29 @@ export function useWebShell() {
     setFiles([]);
     setStatus("disconnected");
   }, [send]);
+
+  useEffect(() => {
+    const persistedSession = readPersistedSession();
+    if (!persistedSession?.sessionId) {
+      return;
+    }
+
+    currentPathRef.current = persistedSession.currentPath || "/";
+    setCurrentPath(currentPathRef.current);
+    setSessionId(persistedSession.sessionId);
+    setConnectionName(persistedSession.name);
+    setStatus("connecting");
+    setError(undefined);
+
+    openSocket((socket) => {
+      socket.send(
+        JSON.stringify({
+          type: "connection.attach",
+          sessionId: persistedSession.sessionId
+        } satisfies ClientMessage)
+      );
+    });
+  }, [openSocket]);
 
   const registerTerminalWriter = useCallback((writer: TerminalWriter) => {
     terminalWriterRef.current = writer;
@@ -225,4 +287,33 @@ function resolveWebSocketUrl(): string {
 
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${protocol}//${window.location.host}/ws`;
+}
+
+function readPersistedSession(): PersistedSession | undefined {
+  try {
+    const raw = window.sessionStorage.getItem(PERSISTED_SESSION_KEY);
+    if (!raw) {
+      return undefined;
+    }
+    return JSON.parse(raw) as PersistedSession;
+  } catch {
+    clearPersistedSession();
+    return undefined;
+  }
+}
+
+function persistSession(session: PersistedSession): void {
+  window.sessionStorage.setItem(PERSISTED_SESSION_KEY, JSON.stringify(session));
+}
+
+function updatePersistedSession(update: Partial<PersistedSession>): void {
+  const current = readPersistedSession();
+  if (!current) {
+    return;
+  }
+  persistSession({ ...current, ...update });
+}
+
+function clearPersistedSession(): void {
+  window.sessionStorage.removeItem(PERSISTED_SESSION_KEY);
 }

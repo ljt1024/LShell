@@ -55,6 +55,17 @@ export function attachWebSocketServer(server: Server, connections: ConnectionMan
             break;
           }
 
+          case "connection.attach": {
+            const session = connections.get(message.sessionId);
+            if (!session) {
+              throw new Error("SSH 会话已失效，请重新连接");
+            }
+            sessionId = session.id;
+            send({ type: "connection.ready", sessionId: session.id, name: session.name });
+            send({ type: "connection.status", status: "connected", message: "已恢复 SSH 连接" });
+            break;
+          }
+
           case "connection.disconnect": {
             if (sessionId) {
               await connections.remove(sessionId);
@@ -149,9 +160,7 @@ export function attachWebSocketServer(server: Server, connections: ConnectionMan
     });
 
     socket.on("close", () => {
-      if (sessionId) {
-        void connections.remove(sessionId);
-      }
+      sessionId = undefined;
     });
   });
 

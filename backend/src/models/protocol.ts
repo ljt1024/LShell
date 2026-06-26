@@ -27,6 +27,7 @@ export interface FileInfo {
 
 export type ClientMessage =
   | { type: "connection.connect"; config: ServerConfig }
+  | { type: "connection.attach"; sessionId: string }
   | { type: "connection.disconnect" }
   | { type: "terminal.open"; cols: number; rows: number }
   | { type: "terminal.input"; data: string }
