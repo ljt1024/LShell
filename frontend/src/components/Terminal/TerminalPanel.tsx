@@ -1,9 +1,9 @@
-import { ClearOutlined, CodeOutlined } from "@ant-design/icons";
+import { ClearOutlined, CodeOutlined, FullscreenExitOutlined, FullscreenOutlined } from "@ant-design/icons";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import { Button, Space, Tag, Typography } from "antd";
-import { useEffect, useRef } from "react";
+import { Button, Space, Tag, Tooltip, Typography } from "antd";
+import { useEffect, useRef, useState } from "react";
 import type { ConnectionStatus } from "../../types/protocol";
 
 interface TerminalPanelProps {
@@ -22,6 +22,7 @@ export function TerminalPanel({ status, sessionId, registerWriter, onOpen, onInp
   const inputRef = useRef(onInput);
   const resizeRef = useRef(onResize);
   const statusRef = useRef(status);
+  const [fullscreen, setFullscreen] = useState(false);
 
   useEffect(() => {
     inputRef.current = onInput;
@@ -109,17 +110,57 @@ export function TerminalPanel({ status, sessionId, registerWriter, onOpen, onInp
     onOpen(terminal.cols, terminal.rows);
   }, [onOpen, sessionId, status]);
 
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setFullscreen(false);
+      }
+    };
+
+    if (fullscreen) {
+      window.addEventListener("keydown", handleKeyDown);
+    }
+
+    const resizeTimer = window.setTimeout(() => {
+      const terminal = terminalRef.current;
+      const fitAddon = fitAddonRef.current;
+      if (!terminal || !fitAddon) {
+        return;
+      }
+      fitAddon.fit();
+      if (statusRef.current === "connected") {
+        resizeRef.current(terminal.cols, terminal.rows);
+      }
+      terminal.focus();
+    }, 0);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.clearTimeout(resizeTimer);
+    };
+  }, [fullscreen]);
+
   return (
-    <section className="terminal-panel">
+    <section className={`terminal-panel${fullscreen ? " terminal-panel-fullscreen" : ""}`}>
       <div className="section-bar">
         <Space>
           <CodeOutlined />
           <Typography.Text>终端</Typography.Text>
           <Tag color={status === "connected" ? "success" : "default"}>{status === "connected" ? "live" : "offline"}</Tag>
         </Space>
-        <Button size="small" icon={<ClearOutlined />} onClick={() => terminalRef.current?.clear()}>
-          清屏
-        </Button>
+        <Space size={6}>
+          <Button size="small" icon={<ClearOutlined />} onClick={() => terminalRef.current?.clear()}>
+            清屏
+          </Button>
+          <Tooltip title={fullscreen ? "退出全屏" : "全屏"}>
+            <Button
+              size="small"
+              icon={fullscreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
+              onClick={() => setFullscreen((current) => !current)}
+              aria-label={fullscreen ? "退出终端全屏" : "终端全屏"}
+            />
+          </Tooltip>
+        </Space>
       </div>
       <div ref={containerRef} className="terminal-host" />
     </section>
