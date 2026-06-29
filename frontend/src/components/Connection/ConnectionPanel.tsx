@@ -1,6 +1,5 @@
 import {
   ApiOutlined,
-  CloudServerOutlined,
   DeleteOutlined,
   DisconnectOutlined,
   KeyOutlined,
@@ -56,12 +55,14 @@ export function ConnectionPanel({ status, onConnect, onDisconnect }: ConnectionP
 
   return (
     <aside className="connection-panel">
-      <div className="panel-heading">
+      <div className="connection-panel-heading">
         <div>
-          <Typography.Text className="eyebrow">LShell</Typography.Text>
-          <Typography.Title level={3}>远程连接</Typography.Title>
+          <Typography.Text strong>SSH 连接</Typography.Text>
+          <Typography.Text className="sidebar-section-caption">服务器与认证信息</Typography.Text>
         </div>
-        <CloudServerOutlined />
+        <Tag color={status === "connected" ? "success" : status === "connecting" ? "processing" : "default"}>
+          {status}
+        </Tag>
       </div>
 
       <Form
@@ -134,9 +135,7 @@ export function ConnectionPanel({ status, onConnect, onDisconnect }: ConnectionP
 
       <div className="profile-list-header">
         <Typography.Text>连接资料</Typography.Text>
-        <Tag color={status === "connected" ? "success" : status === "connecting" ? "processing" : "default"}>
-          {status}
-        </Tag>
+        <Typography.Text type="secondary">{groupedProfiles.length}</Typography.Text>
       </div>
       <List
         className="profile-list"

@@ -1,9 +1,10 @@
-import { MenuFoldOutlined, MenuUnfoldOutlined } from "@ant-design/icons";
-import { Alert, Button, ConfigProvider, Layout, Space, Tag, Tooltip, Typography, theme } from "antd";
+import { ApiOutlined, CodeOutlined, FolderOutlined, MenuFoldOutlined, MenuUnfoldOutlined } from "@ant-design/icons";
+import { Alert, Button, ConfigProvider, Layout, Space, Tabs, Tag, Tooltip, Typography, theme } from "antd";
 import type { CSSProperties, PointerEvent } from "react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ConnectionPanel } from "./components/Connection/ConnectionPanel";
 import { FileManager } from "./components/FileManager/FileManager";
+import { DirectoryTreePanel } from "./components/FileTree/DirectoryTreePanel";
 import { TerminalPanel } from "./components/Terminal/TerminalPanel";
 import { useWebShell } from "./hooks/useWebShell";
 import "./styles.css";
@@ -15,6 +16,13 @@ export default function App() {
   const isResizingRef = useRef(false);
   const [siderCollapsed, setSiderCollapsed] = useState(false);
   const [filePanePercent, setFilePanePercent] = useState(58);
+  const [sidebarView, setSidebarView] = useState<"files" | "connection">("connection");
+
+  useEffect(() => {
+    if (connected) {
+      setSidebarView("files");
+    }
+  }, [connected]);
 
   const workspaceStyle = {
     "--file-pane-size": `${filePanePercent}fr`,
@@ -96,13 +104,51 @@ export default function App() {
     >
       <Layout className="app-shell">
         <Layout.Sider
-          width={360}
+          width={320}
           collapsed={siderCollapsed}
           collapsedWidth={0}
           trigger={null}
           className={`app-sider${siderCollapsed ? " app-sider-collapsed" : ""}`}
         >
-          <ConnectionPanel status={shell.status} onConnect={shell.connect} onDisconnect={shell.disconnect} />
+          <div className="sidebar-shell">
+            <div className="sidebar-brand">
+              <div className="sidebar-brand-mark">
+                <CodeOutlined />
+              </div>
+              <div>
+                <Typography.Title level={4}>LShell</Typography.Title>
+                <Typography.Text>Remote workspace</Typography.Text>
+              </div>
+            </div>
+            <Tabs
+              className="sidebar-tabs"
+              activeKey={sidebarView}
+              onChange={(key) => setSidebarView(key as "files" | "connection")}
+              items={[
+                {
+                  key: "files",
+                  label: <span><FolderOutlined />目录</span>,
+                  children: (
+                    <DirectoryTreePanel
+                      connected={connected}
+                      currentPath={shell.currentPath}
+                      directoryCache={shell.directoryCache}
+                      loadingDirectories={shell.loadingDirectories}
+                      onNavigate={shell.listFiles}
+                      onLoadDirectory={shell.loadDirectory}
+                    />
+                  )
+                },
+                {
+                  key: "connection",
+                  label: <span><ApiOutlined />连接</span>,
+                  children: (
+                    <ConnectionPanel status={shell.status} onConnect={shell.connect} onDisconnect={shell.disconnect} />
+                  )
+                }
+              ]}
+            />
+          </div>
         </Layout.Sider>
         <Layout className="app-main">
           <Layout.Header className="app-header">
@@ -116,7 +162,7 @@ export default function App() {
                   aria-label={siderCollapsed ? "显示连接面板" : "隐藏连接面板"}
                 />
               </Tooltip>
-              <Typography.Title level={4}>LShell Web Console</Typography.Title>
+              <Typography.Title level={4}>远程工作区</Typography.Title>
               <Tag color={connected ? "success" : shell.status === "connecting" ? "processing" : "default"}>
                 {shell.connectionName || shell.status}
               </Tag>

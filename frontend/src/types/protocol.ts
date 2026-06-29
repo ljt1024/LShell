@@ -34,7 +34,7 @@ export type ClientMessage =
   | { type: "terminal.open"; cols: number; rows: number }
   | { type: "terminal.input"; data: string }
   | { type: "terminal.resize"; cols: number; rows: number }
-  | { type: "file.list"; path: string }
+  | { type: "file.list"; path: string; requestId?: string }
   | { type: "file.read"; path: string }
   | { type: "file.write"; path: string; content: string }
   | { type: "file.mkdir"; path: string }
@@ -48,10 +48,10 @@ export type ServerMessage =
   | { type: "connection.ready"; sessionId: string; name: string }
   | { type: "terminal.output"; data: string }
   | { type: "terminal.closed"; code?: number | null; signal?: string | null }
-  | { type: "file.list"; path: string; files: FileInfo[] }
+  | { type: "file.list"; path: string; files: FileInfo[]; requestId?: string }
   | { type: "file.read"; path: string; content: string }
   | { type: "file.saved"; path: string }
   | { type: "file.uploaded"; path: string }
   | { type: "file.download"; path: string; fileName: string; contentBase64: string }
   | { type: "action.done"; action: string; path?: string }
-  | { type: "error"; message: string; requestType?: string };
+  | { type: "error"; message: string; requestType?: string; requestId?: string };

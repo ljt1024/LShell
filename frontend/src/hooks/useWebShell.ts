@@ -16,6 +16,9 @@ export function useWebShell() {
   const socketRef = useRef<WebSocket | null>(null);
   const terminalWriterRef = useRef<TerminalWriter | null>(null);
   const currentPathRef = useRef("/");
+  const requestSequenceRef = useRef(0);
+  const navigationRequestRef = useRef<string>();
+  const directoryRequestsRef = useRef(new Map<string, string>());
 
   const [status, setStatus] = useState<ConnectionStatus>("idle");
   const [sessionId, setSessionId] = useState<string>();
@@ -26,6 +29,8 @@ export function useWebShell() {
   const [activeFilePath, setActiveFilePath] = useState<string>();
   const [fileContent, setFileContent] = useState("");
   const [dirty, setDirty] = useState(false);
+  const [directoryCache, setDirectoryCache] = useState<Record<string, FileInfo[]>>({});
+  const [loadingDirectories, setLoadingDirectories] = useState<string[]>([]);
 
   const send = useCallback((message: ClientMessage) => {
     const socket = socketRef.current;
@@ -38,7 +43,19 @@ export function useWebShell() {
 
   const listFiles = useCallback(
     (path = currentPathRef.current) => {
-      send({ type: "file.list", path });
+      const requestId = `navigation:${++requestSequenceRef.current}`;
+      navigationRequestRef.current = requestId;
+      send({ type: "file.list", path, requestId });
+    },
+    [send]
+  );
+
+  const loadDirectory = useCallback(
+    (path: string) => {
+      const requestId = `tree:${++requestSequenceRef.current}`;
+      directoryRequestsRef.current.set(requestId, path);
+      setLoadingDirectories((current) => (current.includes(path) ? current : [...current, path]));
+      send({ type: "file.list", path, requestId });
     },
     [send]
   );
@@ -70,10 +87,20 @@ export function useWebShell() {
           terminalWriterRef.current?.("\r\n[terminal closed]\r\n");
           break;
         case "file.list":
-          currentPathRef.current = message.path;
-          setCurrentPath(message.path);
-          setFiles(message.files);
-          updatePersistedSession({ currentPath: message.path });
+          setDirectoryCache((current) => ({ ...current, [message.path]: message.files }));
+          if (message.requestId) {
+            const requestedDirectory = directoryRequestsRef.current.get(message.requestId);
+            if (requestedDirectory) {
+              directoryRequestsRef.current.delete(message.requestId);
+              setLoadingDirectories((current) => current.filter((path) => path !== requestedDirectory));
+            }
+          }
+          if (!message.requestId || message.requestId === navigationRequestRef.current) {
+            currentPathRef.current = message.path;
+            setCurrentPath(message.path);
+            setFiles(message.files);
+            updatePersistedSession({ currentPath: message.path });
+          }
           break;
         case "file.read":
           setActiveFilePath(message.path);
@@ -99,6 +126,13 @@ export function useWebShell() {
             setSessionId(undefined);
             setConnectionName(undefined);
             setStatus("disconnected");
+          }
+          if (message.requestId) {
+            const requestedDirectory = directoryRequestsRef.current.get(message.requestId);
+            if (requestedDirectory) {
+              directoryRequestsRef.current.delete(message.requestId);
+              setLoadingDirectories((current) => current.filter((path) => path !== requestedDirectory));
+            }
           }
           terminalWriterRef.current?.(`\r\n[error] ${message.message}\r\n`);
           break;
@@ -147,6 +181,9 @@ export function useWebShell() {
       setActiveFilePath(undefined);
       setFileContent("");
       setDirty(false);
+      setDirectoryCache({});
+      setLoadingDirectories([]);
+      directoryRequestsRef.current.clear();
       currentPathRef.current = "/";
       setCurrentPath("/");
       clearPersistedSession();
@@ -166,6 +203,9 @@ export function useWebShell() {
     setSessionId(undefined);
     setConnectionName(undefined);
     setFiles([]);
+    setDirectoryCache({});
+    setLoadingDirectories([]);
+    directoryRequestsRef.current.clear();
     setStatus("disconnected");
   }, [send]);
 
@@ -251,6 +291,8 @@ export function useWebShell() {
     connectionName,
     error,
     files,
+    directoryCache,
+    loadingDirectories,
     currentPath,
     activeFilePath,
     fileContent,
@@ -262,6 +304,7 @@ export function useWebShell() {
     sendTerminalInput,
     resizeTerminal,
     listFiles,
+    loadDirectory,
     readFile,
     saveFile,
     closeEditor,

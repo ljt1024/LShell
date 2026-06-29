@@ -97,7 +97,7 @@ export function attachWebSocketServer(server: Server, connections: ConnectionMan
 
           case "file.list": {
             const files = await requireSession().listDirectory(message.path);
-            send({ type: "file.list", path: message.path, files });
+            send({ type: "file.list", path: message.path, files, requestId: message.requestId });
             break;
           }
 
@@ -154,6 +154,7 @@ export function attachWebSocketServer(server: Server, connections: ConnectionMan
         send({
           type: "error",
           requestType: message?.type,
+          requestId: message && "requestId" in message ? message.requestId : undefined,
           message: error instanceof Error ? error.message : "未知错误"
         });
       }

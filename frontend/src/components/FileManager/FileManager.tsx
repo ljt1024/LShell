@@ -102,7 +102,7 @@ export function FileManager({
     {
       title: "",
       key: "actions",
-      width: 160,
+      width: 136,
       render: (_, file) => (
         <Space size={2}>
           {file.type === "directory" ? (
@@ -157,12 +157,14 @@ export function FileManager({
   return (
     <section className="file-panel">
       <div className="section-bar">
-        <Space>
+        <Space className="file-location" size={10}>
           <FolderOpenOutlined />
-          <Typography.Text>文件</Typography.Text>
-          <Breadcrumb items={breadcrumbItems} />
+          <div className="file-location-copy">
+            <Typography.Text strong>文件浏览器</Typography.Text>
+            <Breadcrumb items={breadcrumbItems} />
+          </div>
         </Space>
-        <Space.Compact>
+        <Space.Compact className="file-toolbar">
           <Tooltip title="上级目录">
             <Button disabled={!connected || currentPath === "/"} icon={<ArrowUpOutlined />} onClick={() => onList(dirname(currentPath))} />
           </Tooltip>
@@ -182,9 +184,9 @@ export function FileManager({
             }}
             disabled={!connected}
           >
-            <Button disabled={!connected} icon={<UploadOutlined />}>
-              上传
-            </Button>
+            <Tooltip title="上传文件">
+              <Button disabled={!connected} icon={<UploadOutlined />} aria-label="上传文件" />
+            </Tooltip>
           </Upload>
         </Space.Compact>
       </div>
@@ -194,7 +196,7 @@ export function FileManager({
         columns={columns}
         dataSource={files}
         pagination={false}
-        scroll={{ x: 920, y: "calc(52vh - 150px)" }}
+        scroll={{ x: 860 }}
         locale={{ emptyText: connected ? "目录为空" : "未连接" }}
         onRow={(file) => ({
           onDoubleClick: () => {
