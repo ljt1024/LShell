@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import { Client } from "ssh2";
 import type { ClientChannel, ConnectConfig, SFTPWrapper } from "ssh2";
-import type { FileInfo, ServerConfig } from "../models/protocol.js";
+import type { AgentStepExecutionResult, FileInfo, ServerConfig } from "../models/protocol.js";
 import { joinRemotePath, normalizeRemotePath } from "../sftp/remotePath.js";
 
 type SftpEntry = {
@@ -120,6 +120,106 @@ export class SSHSession {
     );
   }
 
+  async execCommand(
+    command: string,
+    options: {
+      cwd?: string;
+      timeoutMs?: number;
+      maxBytes?: number;
+      onData?: (stream: "stdout" | "stderr", data: string) => void;
+    } = {}
+  ): Promise<AgentStepExecutionResult> {
+    this.assertConnected();
+    const startedAt = Date.now();
+    const timeoutMs = clampNumber(options.timeoutMs ?? 120_000, 5_000, 10 * 60_000, 120_000);
+    const maxBytes = clampNumber(options.maxBytes ?? 256 * 1024, 16 * 1024, 2 * 1024 * 1024, 256 * 1024);
+    const executableCommand = options.cwd
+      ? `cd ${quoteForShell(normalizeRemotePath(options.cwd))} && ${command}`
+      : command;
+
+    return new Promise<AgentStepExecutionResult>((resolve, reject) => {
+      let stdout = "";
+      let stderr = "";
+      let totalBytes = 0;
+      let settled = false;
+      let timedOut = false;
+      let outputLimited = false;
+      let streamRef: ClientChannel | undefined;
+
+      const finish = (callback: () => void) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        this.touch();
+        callback();
+      };
+
+      const timer = setTimeout(() => {
+        timedOut = true;
+        streamRef?.close();
+      }, timeoutMs);
+
+      const collect = (target: "stdout" | "stderr", chunk: Buffer) => {
+        totalBytes += chunk.length;
+        const text = chunk.toString("utf8");
+        if (target === "stdout") {
+          stdout += text;
+        } else {
+          stderr += text;
+        }
+        options.onData?.(target, text);
+        if (totalBytes > maxBytes) {
+          if (!outputLimited) {
+            outputLimited = true;
+            const limitMessage = `\n[LShell] 输出超过 ${Math.round(maxBytes / 1024)}KB，已停止该命令。\n`;
+            stderr += limitMessage;
+            options.onData?.("stderr", limitMessage);
+          }
+          streamRef?.close();
+        }
+      };
+
+      this.client.exec(executableCommand, (error, stream) => {
+        if (error) {
+          finish(() => reject(error));
+          return;
+        }
+
+        streamRef = stream;
+        stream.on("data", (chunk: Buffer) => collect("stdout", chunk));
+        stream.stderr.on("data", (chunk: Buffer) => collect("stderr", chunk));
+        stream.on("error", (streamError: Error) => finish(() => reject(streamError)));
+        stream.on("close", (code?: number | null, signal?: string | null) => {
+          finish(() => {
+            const durationMs = Date.now() - startedAt;
+            if (timedOut) {
+              resolve({
+                command,
+                stdout,
+                stderr: `${stderr}\n[LShell] 命令执行超过 ${Math.round(timeoutMs / 1000)} 秒，已停止。\n`,
+                exitCode: 124,
+                signal: signal ?? "TIMEOUT",
+                durationMs
+              });
+              return;
+            }
+
+            resolve({
+              command,
+              stdout,
+              stderr,
+              exitCode: typeof code === "number" ? code : null,
+              signal,
+              durationMs
+            });
+          });
+        });
+      });
+    });
+  }
+
   async listDirectory(remotePath: string): Promise<FileInfo[]> {
     const sftp = await this.getSftp();
     const directory = normalizeRemotePath(remotePath);
@@ -207,6 +307,41 @@ export class SSHSession {
     await new Promise<void>((resolve, reject) => {
       sftp.mkdir(directory, (error) => (error ? reject(error) : resolve()));
     });
+    this.touch();
+  }
+
+  async mkdirp(remotePath: string): Promise<void> {
+    const sftp = await this.getSftp();
+    const directory = normalizeRemotePath(remotePath);
+    const parts = directory.split("/").filter(Boolean);
+    let current = "";
+
+    for (const part of parts) {
+      current = `${current}/${part}`;
+      const exists = await new Promise<boolean>((resolve, reject) => {
+        sftp.stat(current, (error, stat) => {
+          if (!error) {
+            if (!stat.isDirectory()) {
+              reject(new Error(`${current} 已存在但不是目录`));
+              return;
+            }
+            resolve(true);
+            return;
+          }
+          if ((error as NodeJS.ErrnoException).code === "ENOENT" || /No such file/i.test(error.message)) {
+            resolve(false);
+            return;
+          }
+          reject(error);
+        });
+      });
+
+      if (!exists) {
+        await new Promise<void>((resolve, reject) => {
+          sftp.mkdir(current, (error) => (error ? reject(error) : resolve()));
+        });
+      }
+    }
     this.touch();
   }
 
@@ -310,4 +445,8 @@ function clampNumber(value: number, min: number, max: number, fallback: number):
     return fallback;
   }
   return Math.max(min, Math.min(max, Math.floor(value)));
+}
+
+function quoteForShell(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
 }

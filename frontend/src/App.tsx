@@ -228,10 +228,29 @@ export default function App() {
             <TerminalPanel
               status={shell.status}
               sessionId={shell.sessionId}
+              currentPath={shell.currentPath}
+              agentPlan={shell.agentPlan}
+              agentStepStates={shell.agentStepStates}
+              agentGenerating={shell.agentGenerating}
+              agentExecuting={shell.agentExecuting}
+              agentMessage={shell.agentMessage}
+              agentPlanStream={shell.agentPlanStream}
+              agentHistory={shell.agentHistory}
+              agentUploadedFiles={shell.agentUploadedFiles}
+              agentUploading={shell.agentUploading}
+              agentUploadMessage={shell.agentUploadMessage}
               registerWriter={shell.registerTerminalWriter}
               onOpen={shell.openTerminal}
               onInput={shell.sendTerminalInput}
               onResize={shell.resizeTerminal}
+              onAgentPlan={shell.planAgentTask}
+              onAgentExecute={shell.executeAgentPlan}
+              onAgentReset={shell.resetAgent}
+              onAgentUploadFile={shell.uploadAgentFile}
+              onAgentRemoveUploadedFile={shell.removeAgentUploadedFile}
+              onAgentClearUploadedFiles={shell.clearAgentUploadedFiles}
+              onAgentLoadHistory={shell.loadAgentHistoryItem}
+              onAgentClearHistory={shell.clearAgentHistoryItems}
             />
           </Layout.Content>
         </Layout>
