@@ -705,6 +705,11 @@ function trimStream(value: string): string {
 }
 
 function resolveWebSocketUrl(): string {
+  const desktopUrl = resolveDesktopWebSocketUrl();
+  if (desktopUrl) {
+    return desktopUrl;
+  }
+
   const explicitUrl = import.meta.env.VITE_WS_URL as string | undefined;
   if (explicitUrl) {
     return explicitUrl;
@@ -716,6 +721,21 @@ function resolveWebSocketUrl(): string {
 
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${protocol}//${window.location.host}/ws`;
+}
+
+function resolveDesktopWebSocketUrl(): string | undefined {
+  const backendUrl = window.lshellDesktop?.backendUrl;
+  if (!backendUrl) {
+    return undefined;
+  }
+
+  try {
+    const url = new URL("/ws", backendUrl);
+    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    return url.toString();
+  } catch {
+    return undefined;
+  }
 }
 
 function readPersistedSession(): PersistedSession | undefined {

@@ -19,6 +19,7 @@ LShell 是一个类似 FinalShell 的 Web 版远程服务器管理 MVP。当前�
 - 连接资料本地保存（不保存密码和私钥内容）
 - 刷新页面后自动恢复同一浏览器标签页内的 SSH 连接
 - WebSocket 心跳与空闲会话清理
+- Electron 桌面端：内置启动本地后端、加载同一套工作台，并支持系统文件选择器选择 SSH 私钥路径
 
 ## 运行界面
 
@@ -43,6 +44,18 @@ npm run dev:frontend
 - 前端：http://127.0.0.1:5173
 - 后端：http://127.0.0.1:8080
 - WebSocket：ws://127.0.0.1:8080/ws
+
+## 桌面端
+
+已实现 Electron 桌面端，复用现有 React 工作台和 Node 后端能力。启动时会先构建前后端，再由 Electron 主进程启动本地后端并打开桌面窗口：
+
+```bash
+npm run dev:desktop
+```
+
+桌面端默认读取 `.env` 中的 `HOST` 和 `PORT`，并在本地后端上托管 `frontend/dist`。密钥认证时可以直接点击私钥路径旁的文件按钮选择本机私钥文件；浏览器 Web 版仍保持手动输入路径或粘贴私钥内容。
+
+如果配置端口已被只提供 API 的开发后端占用，桌面端会自动寻找下一个可用本地端口启动托管版后端，避免窗口加载到 404。窗口尺寸和位置会保存在系统用户数据目录中，下次启动自动恢复。
 
 ## 构建
 
@@ -96,5 +109,5 @@ QWEN_STREAM=true
 ```text
 backend/   Node.js API、SSH/SFTP、WebSocket
 frontend/  React 工作台、终端、文件管理器
-electron/  桌面端后续占位
+electron/  Electron 主进程与预加载桥
 ```

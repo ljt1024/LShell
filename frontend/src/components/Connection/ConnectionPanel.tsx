@@ -2,6 +2,7 @@ import {
   ApiOutlined,
   DeleteOutlined,
   DisconnectOutlined,
+  FolderOpenOutlined,
   KeyOutlined,
   PlayCircleOutlined,
   SaveOutlined
@@ -21,6 +22,7 @@ export function ConnectionPanel({ status, onConnect, onDisconnect }: ConnectionP
   const [form] = Form.useForm<ServerConfig>();
   const authType = Form.useWatch("authType", form);
   const { profiles, upsertProfile, removeProfile } = useConnectionStore();
+  const canSelectPrivateKey = Boolean(window.lshellDesktop?.selectPrivateKey);
   const groupedProfiles = useMemo(
     () =>
       [...profiles].sort((a, b) => {
@@ -41,6 +43,17 @@ export function ConnectionPanel({ status, onConnect, onDisconnect }: ConnectionP
       return;
     }
     onConnect({ ...values, port: Number(values.port || 22) });
+  };
+
+  const handleSelectPrivateKey = async () => {
+    try {
+      const filePath = await window.lshellDesktop?.selectPrivateKey();
+      if (filePath) {
+        form.setFieldValue("privateKeyPath", filePath);
+      }
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "选择私钥文件失败");
+    }
   };
 
   const handleSaveProfile = async () => {
@@ -106,8 +119,20 @@ export function ConnectionPanel({ status, onConnect, onDisconnect }: ConnectionP
             <Form.Item name="privateKey" label="私钥">
               <Input.TextArea rows={5} placeholder="-----BEGIN OPENSSH PRIVATE KEY-----" />
             </Form.Item>
-            <Form.Item name="privateKeyPath" label="私钥路径">
-              <Input prefix={<KeyOutlined />} placeholder="/Users/me/.ssh/id_rsa" />
+            <Form.Item label="私钥路径">
+              <Space.Compact block>
+                <Form.Item name="privateKeyPath" noStyle>
+                  <Input prefix={<KeyOutlined />} placeholder="/Users/me/.ssh/id_rsa" />
+                </Form.Item>
+                {canSelectPrivateKey ? (
+                  <Button
+                    icon={<FolderOpenOutlined />}
+                    aria-label="选择私钥文件"
+                    title="选择私钥文件"
+                    onClick={handleSelectPrivateKey}
+                  />
+                ) : null}
+              </Space.Compact>
             </Form.Item>
             <Form.Item name="privateKeyPassphrase" label="Passphrase">
               <Input.Password />

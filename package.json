@@ -2,6 +2,7 @@
   "name": "lshell",
   "version": "0.1.0",
   "private": true,
+  "main": "electron/main.js",
   "workspaces": [
     "backend",
     "frontend"
@@ -9,10 +10,15 @@
   "scripts": {
     "dev:backend": "npm --workspace backend run dev",
     "dev:frontend": "npm --workspace frontend run dev",
+    "dev:desktop": "npm run build && node electron/start.js",
+    "desktop": "npm run build && node electron/start.js",
     "build": "npm --workspace backend run build && npm --workspace frontend run build",
     "typecheck": "npm --workspace backend run typecheck && npm --workspace frontend run typecheck"
   },
   "engines": {
     "node": ">=18.20.0"
+  },
+  "devDependencies": {
+    "electron": "^31.7.7"
   }
 }

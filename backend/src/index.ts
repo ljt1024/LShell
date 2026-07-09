@@ -1,5 +1,7 @@
 import "./config/env.js";
 import http from "node:http";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import cors from "cors";
 import express from "express";
 import { ConnectionManager } from "./ssh/ConnectionManager.js";
@@ -7,6 +9,10 @@ import { attachWebSocketServer } from "./websocket/server.js";
 
 const app = express();
 const connections = new ConnectionManager();
+const runtimeDir = path.dirname(fileURLToPath(import.meta.url));
+const projectRoot = path.resolve(runtimeDir, "../..");
+const frontendDist = path.join(projectRoot, "frontend", "dist");
+const frontendIndex = path.join(frontendDist, "index.html");
 
 app.use(
   cors({
@@ -23,6 +29,22 @@ app.get("/api/health", (_request, response) => {
     time: new Date().toISOString()
   });
 });
+
+if (process.env.LSHELL_SERVE_FRONTEND === "true") {
+  app.use(express.static(frontendDist, { index: false }));
+  app.get("*", (request, response, next) => {
+    if (request.path.startsWith("/api") || request.path === "/ws") {
+      next();
+      return;
+    }
+
+    response.sendFile(frontendIndex, (error) => {
+      if (error) {
+        next(error);
+      }
+    });
+  });
+}
 
 const server = http.createServer(app);
 attachWebSocketServer(server, connections);
