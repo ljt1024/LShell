@@ -1,15 +1,36 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { clearAgentHistory, readAgentHistory, upsertAgentHistoryItem, writeAgentHistory } from "../services/agentHistory";
 import { downloadBase64File, fileToBase64 } from "../services/encoding";
-import type { ClientMessage, ConnectionStatus, FileInfo, ServerConfig, ServerMessage } from "../types/protocol";
+import type {
+  AgentHistoryStatus,
+  AgentPlan,
+  AgentPlanHistoryItem,
+  AgentStepState,
+  AgentUploadedFile,
+  ClientMessage,
+  ConnectionStatus,
+  FileInfo,
+  ServerConfig,
+  ServerMessage
+} from "../types/protocol";
 
 type TerminalWriter = (data: string) => void;
 
 const PERSISTED_SESSION_KEY = "lshell-active-session";
+const MAX_STREAM_CHARS = 30_000;
 
 interface PersistedSession {
   sessionId: string;
   name: string;
   currentPath: string;
+}
+
+interface PendingAgentUpload {
+  fileName: string;
+  directory: string;
+  size: number;
+  resolve: () => void;
+  reject: (error: Error) => void;
 }
 
 export function useWebShell() {
@@ -19,6 +40,12 @@ export function useWebShell() {
   const requestSequenceRef = useRef(0);
   const navigationRequestRef = useRef<string>();
   const directoryRequestsRef = useRef(new Map<string, string>());
+  const agentRequestRef = useRef<string>();
+  const agentIntentRef = useRef("");
+  const agentPlanRef = useRef<AgentPlan>();
+  const agentStepStatesRef = useRef<Record<string, AgentStepState>>({});
+  const agentUploadedFilesRef = useRef<AgentUploadedFile[]>([]);
+  const pendingAgentUploadsRef = useRef(new Map<string, PendingAgentUpload>());
 
   const [status, setStatus] = useState<ConnectionStatus>("idle");
   const [sessionId, setSessionId] = useState<string>();
@@ -31,6 +58,62 @@ export function useWebShell() {
   const [dirty, setDirty] = useState(false);
   const [directoryCache, setDirectoryCache] = useState<Record<string, FileInfo[]>>({});
   const [loadingDirectories, setLoadingDirectories] = useState<string[]>([]);
+  const [agentPlan, setAgentPlan] = useState<AgentPlan>();
+  const [agentStepStates, setAgentStepStates] = useState<Record<string, AgentStepState>>({});
+  const [agentGenerating, setAgentGenerating] = useState(false);
+  const [agentExecuting, setAgentExecuting] = useState(false);
+  const [agentMessage, setAgentMessage] = useState<string>();
+  const [agentPlanStream, setAgentPlanStream] = useState("");
+  const [agentHistory, setAgentHistory] = useState<AgentPlanHistoryItem[]>(() => readAgentHistory());
+  const [agentUploadedFiles, setAgentUploadedFiles] = useState<AgentUploadedFile[]>([]);
+  const [agentUploading, setAgentUploading] = useState(false);
+  const [agentUploadMessage, setAgentUploadMessage] = useState<string>();
+
+  const updateAgentHistory = useCallback((updater: (current: AgentPlanHistoryItem[]) => AgentPlanHistoryItem[]) => {
+    setAgentHistory((current) => writeAgentHistory(updater(current)));
+  }, []);
+
+  const persistActiveAgentPlan = useCallback(
+    (status: AgentHistoryStatus, stepStates = agentStepStatesRef.current) => {
+      const plan = agentPlanRef.current;
+      if (!plan) {
+        return;
+      }
+
+      const now = new Date().toISOString();
+      const item: AgentPlanHistoryItem = {
+        id: plan.id,
+        intent: agentIntentRef.current,
+        connectionName,
+        uploadedFiles: agentUploadedFilesRef.current,
+        plan,
+        createdAt: plan.createdAt,
+        updatedAt: now,
+        executionStatus: status,
+        stepStates
+      };
+      updateAgentHistory((current) => upsertAgentHistoryItem(current, item));
+    },
+    [connectionName, updateAgentHistory]
+  );
+
+  const replaceAgentStepStates = useCallback((next: Record<string, AgentStepState>) => {
+    agentStepStatesRef.current = next;
+    setAgentStepStates(next);
+  }, []);
+
+  const updateAgentStepStates = useCallback((updater: (current: Record<string, AgentStepState>) => Record<string, AgentStepState>) => {
+    setAgentStepStates((current) => {
+      const next = updater(current);
+      agentStepStatesRef.current = next;
+      return next;
+    });
+  }, []);
+
+  const replaceAgentUploadedFiles = useCallback((files: AgentUploadedFile[]) => {
+    agentUploadedFilesRef.current = files;
+    setAgentUploadedFiles(files);
+  }, []);
 
   const send = useCallback((message: ClientMessage) => {
     const socket = socketRef.current;
@@ -111,16 +194,139 @@ export function useWebShell() {
           setDirty(false);
           listFiles(currentPathRef.current);
           break;
-        case "file.uploaded":
+        case "file.uploaded": {
+          const pendingUpload = message.requestId ? pendingAgentUploadsRef.current.get(message.requestId) : undefined;
+          if (pendingUpload) {
+            pendingAgentUploadsRef.current.delete(message.requestId!);
+            const uploadedFile: AgentUploadedFile = {
+              id: message.requestId!,
+              name: pendingUpload.fileName,
+              path: message.path,
+              directory: pendingUpload.directory,
+              size: message.size ?? pendingUpload.size,
+              uploadedAt: new Date().toISOString()
+            };
+            replaceAgentUploadedFiles([uploadedFile, ...agentUploadedFilesRef.current]);
+            setAgentUploading(pendingAgentUploadsRef.current.size > 0);
+            setAgentUploadMessage(`${pendingUpload.fileName} 已上传到 ${message.path}`);
+            pendingUpload.resolve();
+          }
+          listFiles(currentPathRef.current);
+          break;
+        }
         case "action.done":
           listFiles(currentPathRef.current);
           break;
         case "file.download":
           downloadBase64File(message.fileName, message.contentBase64);
           break;
+        case "agent.plan.started":
+          if (message.requestId && message.requestId !== agentRequestRef.current) {
+            break;
+          }
+          setAgentGenerating(true);
+          setAgentPlanStream("");
+          setAgentMessage("正在生成计划...");
+          break;
+        case "agent.plan.delta":
+          if (message.requestId && message.requestId !== agentRequestRef.current) {
+            break;
+          }
+          setAgentPlanStream((current) => trimStream(`${current}${message.delta}`));
+          break;
+        case "agent.plan":
+          if (message.requestId && message.requestId !== agentRequestRef.current) {
+            break;
+          }
+          agentPlanRef.current = message.plan;
+          setAgentPlan(message.plan);
+          replaceAgentStepStates(createInitialAgentStepStates(message.plan));
+          setAgentMessage("计划已生成，请检查后确认执行");
+          persistActiveAgentPlan("planned", createInitialAgentStepStates(message.plan));
+          break;
+        case "agent.plan.finished":
+          if (message.requestId && message.requestId !== agentRequestRef.current) {
+            break;
+          }
+          setAgentGenerating(false);
+          break;
+        case "agent.step.started":
+          if (message.requestId && message.requestId !== agentRequestRef.current) {
+            break;
+          }
+          updateAgentStepStates((current) => {
+            const next = {
+              ...current,
+              [message.stepId]: { ...current[message.stepId], status: "running" as const }
+            };
+            persistActiveAgentPlan("running", next);
+            return next;
+          });
+          break;
+        case "agent.step.output":
+          if (message.requestId && message.requestId !== agentRequestRef.current) {
+            break;
+          }
+          updateAgentStepStates((current) => {
+            const previous = current[message.stepId] ?? { status: "running" as const };
+            const nextState = {
+              ...previous,
+              status: previous.status === "pending" ? "running" as const : previous.status,
+              [message.stream]: trimStream(`${previous[message.stream] ?? ""}${message.data}`)
+            };
+            return {
+              ...current,
+              [message.stepId]: nextState
+            };
+          });
+          break;
+        case "agent.step.finished":
+          if (message.requestId && message.requestId !== agentRequestRef.current) {
+            break;
+          }
+          updateAgentStepStates((current) => {
+            const next = {
+              ...current,
+              [message.stepId]: {
+                status: message.result.exitCode === 0 ? "success" as const : "failed" as const,
+                stdout: message.result.stdout,
+                stderr: message.result.stderr,
+                result: message.result
+              }
+            };
+            persistActiveAgentPlan(message.result.exitCode === 0 ? "running" : "failed", next);
+            return next;
+          });
+          break;
+        case "agent.execution.finished":
+          if (message.requestId && message.requestId !== agentRequestRef.current) {
+            break;
+          }
+          setAgentExecuting(false);
+          setAgentMessage(message.message);
+          persistActiveAgentPlan(message.ok ? "success" : "failed");
+          if (message.ok) {
+            listFiles(currentPathRef.current);
+          }
+          break;
         case "error":
           setStatus((previous) => (previous === "connecting" ? "error" : previous));
           setError(message.message);
+          if (message.requestType?.startsWith("agent.")) {
+            setAgentGenerating(false);
+            setAgentExecuting(false);
+            setAgentMessage(message.message);
+            persistActiveAgentPlan("failed");
+          }
+          if (message.requestId) {
+            const pendingUpload = pendingAgentUploadsRef.current.get(message.requestId);
+            if (pendingUpload) {
+              pendingAgentUploadsRef.current.delete(message.requestId);
+              setAgentUploading(pendingAgentUploadsRef.current.size > 0);
+              setAgentUploadMessage(message.message);
+              pendingUpload.reject(new Error(message.message));
+            }
+          }
           if (message.requestType === "connection.attach") {
             clearPersistedSession();
             setSessionId(undefined);
@@ -138,7 +344,7 @@ export function useWebShell() {
           break;
       }
     },
-    [listFiles]
+    [listFiles, persistActiveAgentPlan, replaceAgentStepStates, replaceAgentUploadedFiles, updateAgentStepStates]
   );
 
   const openSocket = useCallback(
@@ -183,6 +389,16 @@ export function useWebShell() {
       setDirty(false);
       setDirectoryCache({});
       setLoadingDirectories([]);
+      setAgentPlan(undefined);
+      agentPlanRef.current = undefined;
+      replaceAgentStepStates({});
+      setAgentGenerating(false);
+      setAgentExecuting(false);
+      setAgentMessage(undefined);
+      setAgentPlanStream("");
+      replaceAgentUploadedFiles([]);
+      setAgentUploading(false);
+      setAgentUploadMessage(undefined);
       directoryRequestsRef.current.clear();
       currentPathRef.current = "/";
       setCurrentPath("/");
@@ -192,7 +408,7 @@ export function useWebShell() {
         socket.send(JSON.stringify({ type: "connection.connect", config } satisfies ClientMessage));
       });
     },
-    [openSocket]
+    [openSocket, replaceAgentStepStates, replaceAgentUploadedFiles]
   );
 
   const disconnect = useCallback(() => {
@@ -205,9 +421,19 @@ export function useWebShell() {
     setFiles([]);
     setDirectoryCache({});
     setLoadingDirectories([]);
+    setAgentPlan(undefined);
+    agentPlanRef.current = undefined;
+    replaceAgentStepStates({});
+    setAgentGenerating(false);
+    setAgentExecuting(false);
+    setAgentMessage(undefined);
+    setAgentPlanStream("");
+    replaceAgentUploadedFiles([]);
+    setAgentUploading(false);
+    setAgentUploadMessage(undefined);
     directoryRequestsRef.current.clear();
     setStatus("disconnected");
-  }, [send]);
+  }, [replaceAgentStepStates, replaceAgentUploadedFiles, send]);
 
   useEffect(() => {
     const persistedSession = readPersistedSession();
@@ -254,6 +480,56 @@ export function useWebShell() {
     [send]
   );
 
+  const uploadAgentFile = useCallback(
+    async (file: File, directory: string) => {
+      const socket = socketRef.current;
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        throw new Error("WebSocket 尚未连接");
+      }
+
+      const targetDirectory = directory.trim() || currentPathRef.current;
+      const requestId = `agent-upload:${++requestSequenceRef.current}`;
+      setAgentUploading(true);
+      setAgentUploadMessage(`${file.name} 正在上传...`);
+
+      let contentBase64: string;
+      try {
+        contentBase64 = await fileToBase64(file);
+      } catch (error) {
+        setAgentUploading(pendingAgentUploadsRef.current.size > 0);
+        setAgentUploadMessage(error instanceof Error ? error.message : "读取本地文件失败");
+        throw error;
+      }
+
+      await new Promise<void>((resolve, reject) => {
+        pendingAgentUploadsRef.current.set(requestId, {
+          fileName: file.name,
+          directory: targetDirectory,
+          size: file.size,
+          resolve,
+          reject
+        });
+        try {
+          socket.send(
+            JSON.stringify({
+              type: "file.upload",
+              directory: targetDirectory,
+              fileName: file.name,
+              contentBase64,
+              requestId,
+              size: file.size
+            } satisfies ClientMessage)
+          );
+        } catch (error) {
+          pendingAgentUploadsRef.current.delete(requestId);
+          setAgentUploading(pendingAgentUploadsRef.current.size > 0);
+          reject(error instanceof Error ? error : new Error("上传发送失败"));
+        }
+      });
+    },
+    []
+  );
+
   const openTerminal = useCallback(
     (cols: number, rows: number) => send({ type: "terminal.open", cols, rows }),
     [send]
@@ -285,6 +561,87 @@ export function useWebShell() {
   const rename = useCallback((oldPath: string, newPath: string) => send({ type: "file.rename", oldPath, newPath }), [send]);
   const downloadFile = useCallback((path: string) => send({ type: "file.download", path }), [send]);
 
+  const planAgentTask = useCallback(
+    (intent: string) => {
+      const requestId = `agent-plan:${++requestSequenceRef.current}`;
+      agentRequestRef.current = requestId;
+      agentIntentRef.current = intent.trim();
+      agentPlanRef.current = undefined;
+      setAgentGenerating(true);
+      setAgentExecuting(false);
+      setAgentMessage(undefined);
+      setAgentPlan(undefined);
+      setAgentPlanStream("");
+      replaceAgentStepStates({});
+      send({
+        type: "agent.plan",
+        intent,
+        currentPath: currentPathRef.current,
+        uploadedFiles: agentUploadedFilesRef.current,
+        requestId
+      });
+    },
+    [replaceAgentStepStates, send]
+  );
+
+  const executeAgentPlan = useCallback(
+    (plan: AgentPlan) => {
+      const requestId = `agent-execute:${++requestSequenceRef.current}`;
+      agentRequestRef.current = requestId;
+      agentPlanRef.current = plan;
+      setAgentExecuting(true);
+      setAgentMessage(undefined);
+      const initialStepStates = createInitialAgentStepStates(plan);
+      replaceAgentStepStates(initialStepStates);
+      persistActiveAgentPlan("running", initialStepStates);
+      send({ type: "agent.execute", plan, requestId });
+    },
+    [persistActiveAgentPlan, replaceAgentStepStates, send]
+  );
+
+  const resetAgent = useCallback(() => {
+    setAgentPlan(undefined);
+    agentPlanRef.current = undefined;
+    agentIntentRef.current = "";
+    replaceAgentStepStates({});
+    setAgentGenerating(false);
+    setAgentExecuting(false);
+    setAgentMessage(undefined);
+    setAgentPlanStream("");
+  }, [replaceAgentStepStates]);
+
+  const removeAgentUploadedFile = useCallback(
+    (fileId: string) => {
+      replaceAgentUploadedFiles(agentUploadedFilesRef.current.filter((file) => file.id !== fileId));
+    },
+    [replaceAgentUploadedFiles]
+  );
+
+  const clearAgentUploadedFiles = useCallback(() => {
+    replaceAgentUploadedFiles([]);
+    setAgentUploadMessage(undefined);
+  }, [replaceAgentUploadedFiles]);
+
+  const loadAgentHistoryItem = useCallback(
+    (item: AgentPlanHistoryItem) => {
+      agentIntentRef.current = item.intent;
+      agentPlanRef.current = item.plan;
+      setAgentPlan(item.plan);
+      replaceAgentUploadedFiles(item.uploadedFiles ?? []);
+      replaceAgentStepStates(item.stepStates);
+      setAgentGenerating(false);
+      setAgentExecuting(false);
+      setAgentPlanStream("");
+      setAgentMessage(`已载入历史计划：${item.plan.title}`);
+    },
+    [replaceAgentStepStates, replaceAgentUploadedFiles]
+  );
+
+  const clearAgentHistoryItems = useCallback(() => {
+    clearAgentHistory();
+    setAgentHistory([]);
+  }, []);
+
   return {
     status,
     sessionId,
@@ -297,6 +654,16 @@ export function useWebShell() {
     activeFilePath,
     fileContent,
     dirty,
+    agentPlan,
+    agentStepStates,
+    agentGenerating,
+    agentExecuting,
+    agentMessage,
+    agentPlanStream,
+    agentHistory,
+    agentUploadedFiles,
+    agentUploading,
+    agentUploadMessage,
     connect,
     disconnect,
     registerTerminalWriter,
@@ -313,12 +680,36 @@ export function useWebShell() {
     remove,
     rename,
     uploadFile,
+    uploadAgentFile,
     downloadFile,
+    planAgentTask,
+    executeAgentPlan,
+    resetAgent,
+    removeAgentUploadedFile,
+    clearAgentUploadedFiles,
+    loadAgentHistoryItem,
+    clearAgentHistoryItems,
     clearError: () => setError(undefined)
   };
 }
 
+function createInitialAgentStepStates(plan: AgentPlan): Record<string, AgentStepState> {
+  return Object.fromEntries(plan.steps.map((step) => [step.id, { status: "pending" as const }]));
+}
+
+function trimStream(value: string): string {
+  if (value.length <= MAX_STREAM_CHARS) {
+    return value;
+  }
+  return value.slice(value.length - MAX_STREAM_CHARS);
+}
+
 function resolveWebSocketUrl(): string {
+  const desktopUrl = resolveDesktopWebSocketUrl();
+  if (desktopUrl) {
+    return desktopUrl;
+  }
+
   const explicitUrl = import.meta.env.VITE_WS_URL as string | undefined;
   if (explicitUrl) {
     return explicitUrl;
@@ -330,6 +721,21 @@ function resolveWebSocketUrl(): string {
 
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${protocol}//${window.location.host}/ws`;
+}
+
+function resolveDesktopWebSocketUrl(): string | undefined {
+  const backendUrl = window.lshellDesktop?.backendUrl;
+  if (!backendUrl) {
+    return undefined;
+  }
+
+  try {
+    const url = new URL("/ws", backendUrl);
+    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    return url.toString();
+  } catch {
+    return undefined;
+  }
 }
 
 function readPersistedSession(): PersistedSession | undefined {

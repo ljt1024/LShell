@@ -1,4 +1,11 @@
-import { ApiOutlined, CodeOutlined, FolderOutlined, MenuFoldOutlined, MenuUnfoldOutlined } from "@ant-design/icons";
+import {
+  ApiOutlined,
+  CodeOutlined,
+  DesktopOutlined,
+  FolderOutlined,
+  MenuFoldOutlined,
+  MenuUnfoldOutlined
+} from "@ant-design/icons";
 import { Alert, Button, ConfigProvider, Layout, Space, Tabs, Tag, Tooltip, Typography, theme } from "antd";
 import type { CSSProperties, PointerEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -17,12 +24,26 @@ export default function App() {
   const [siderCollapsed, setSiderCollapsed] = useState(false);
   const [filePanePercent, setFilePanePercent] = useState(58);
   const [sidebarView, setSidebarView] = useState<"files" | "connection">("connection");
+  const [desktopInfo, setDesktopInfo] = useState<LShellDesktopRuntimeInfo>();
 
   useEffect(() => {
     if (connected) {
       setSidebarView("files");
     }
   }, [connected]);
+
+  useEffect(() => {
+    let mounted = true;
+    void window.lshellDesktop?.getRuntimeInfo().then((info) => {
+      if (mounted) {
+        setDesktopInfo(info);
+      }
+    });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const workspaceStyle = {
     "--file-pane-size": `${filePanePercent}fr`,
@@ -163,6 +184,15 @@ export default function App() {
                 />
               </Tooltip>
               <Typography.Title level={4}>远程工作区</Typography.Title>
+              {desktopInfo ? (
+                <Tooltip
+                  title={`${desktopInfo.backendManaged ? "桌面托管后端" : "复用已有后端"} ${desktopInfo.backendUrl}`}
+                >
+                  <Tag icon={<DesktopOutlined />} color="cyan">
+                    Desktop
+                  </Tag>
+                </Tooltip>
+              ) : null}
               <Tag color={connected ? "success" : shell.status === "connecting" ? "processing" : "default"}>
                 {shell.connectionName || shell.status}
               </Tag>
@@ -228,10 +258,29 @@ export default function App() {
             <TerminalPanel
               status={shell.status}
               sessionId={shell.sessionId}
+              currentPath={shell.currentPath}
+              agentPlan={shell.agentPlan}
+              agentStepStates={shell.agentStepStates}
+              agentGenerating={shell.agentGenerating}
+              agentExecuting={shell.agentExecuting}
+              agentMessage={shell.agentMessage}
+              agentPlanStream={shell.agentPlanStream}
+              agentHistory={shell.agentHistory}
+              agentUploadedFiles={shell.agentUploadedFiles}
+              agentUploading={shell.agentUploading}
+              agentUploadMessage={shell.agentUploadMessage}
               registerWriter={shell.registerTerminalWriter}
               onOpen={shell.openTerminal}
               onInput={shell.sendTerminalInput}
               onResize={shell.resizeTerminal}
+              onAgentPlan={shell.planAgentTask}
+              onAgentExecute={shell.executeAgentPlan}
+              onAgentReset={shell.resetAgent}
+              onAgentUploadFile={shell.uploadAgentFile}
+              onAgentRemoveUploadedFile={shell.removeAgentUploadedFile}
+              onAgentClearUploadedFiles={shell.clearAgentUploadedFiles}
+              onAgentLoadHistory={shell.loadAgentHistoryItem}
+              onAgentClearHistory={shell.clearAgentHistoryItems}
             />
           </Layout.Content>
         </Layout>

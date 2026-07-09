@@ -1,21 +1,67 @@
-import { ClearOutlined, CodeOutlined, FullscreenExitOutlined, FullscreenOutlined } from "@ant-design/icons";
+import { ClearOutlined, CodeOutlined, FullscreenExitOutlined, FullscreenOutlined, RobotOutlined } from "@ant-design/icons";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { Button, Space, Tag, Tooltip, Typography } from "antd";
 import { useEffect, useRef, useState } from "react";
-import type { ConnectionStatus } from "../../types/protocol";
+import type { AgentPlan, AgentPlanHistoryItem, AgentStepState, AgentUploadedFile, ConnectionStatus } from "../../types/protocol";
+import { AgentDrawer } from "../Agent/AgentDrawer";
 
 interface TerminalPanelProps {
   status: ConnectionStatus;
   sessionId?: string;
+  currentPath: string;
+  agentPlan?: AgentPlan;
+  agentStepStates: Record<string, AgentStepState>;
+  agentGenerating: boolean;
+  agentExecuting: boolean;
+  agentMessage?: string;
+  agentPlanStream: string;
+  agentHistory: AgentPlanHistoryItem[];
+  agentUploadedFiles: AgentUploadedFile[];
+  agentUploading: boolean;
+  agentUploadMessage?: string;
   registerWriter: (writer: (data: string) => void) => () => void;
   onOpen: (cols: number, rows: number) => void;
   onInput: (data: string) => void;
   onResize: (cols: number, rows: number) => void;
+  onAgentPlan: (intent: string) => void;
+  onAgentExecute: (plan: AgentPlan) => void;
+  onAgentReset: () => void;
+  onAgentUploadFile: (file: File, directory: string) => Promise<void>;
+  onAgentRemoveUploadedFile: (fileId: string) => void;
+  onAgentClearUploadedFiles: () => void;
+  onAgentLoadHistory: (item: AgentPlanHistoryItem) => void;
+  onAgentClearHistory: () => void;
 }
 
-export function TerminalPanel({ status, sessionId, registerWriter, onOpen, onInput, onResize }: TerminalPanelProps) {
+export function TerminalPanel({
+  status,
+  sessionId,
+  currentPath,
+  agentPlan,
+  agentStepStates,
+  agentGenerating,
+  agentExecuting,
+  agentMessage,
+  agentPlanStream,
+  agentHistory,
+  agentUploadedFiles,
+  agentUploading,
+  agentUploadMessage,
+  registerWriter,
+  onOpen,
+  onInput,
+  onResize,
+  onAgentPlan,
+  onAgentExecute,
+  onAgentReset,
+  onAgentUploadFile,
+  onAgentRemoveUploadedFile,
+  onAgentClearUploadedFiles,
+  onAgentLoadHistory,
+  onAgentClearHistory
+}: TerminalPanelProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -23,6 +69,7 @@ export function TerminalPanel({ status, sessionId, registerWriter, onOpen, onInp
   const resizeRef = useRef(onResize);
   const statusRef = useRef(status);
   const [fullscreen, setFullscreen] = useState(false);
+  const [agentOpen, setAgentOpen] = useState(false);
 
   useEffect(() => {
     inputRef.current = onInput;
@@ -149,6 +196,9 @@ export function TerminalPanel({ status, sessionId, registerWriter, onOpen, onInp
           <Tag color={status === "connected" ? "success" : "default"}>{status === "connected" ? "live" : "offline"}</Tag>
         </Space>
         <Space size={6}>
+          <Button size="small" icon={<RobotOutlined />} onClick={() => setAgentOpen(true)}>
+            智能体
+          </Button>
           <Button size="small" icon={<ClearOutlined />} onClick={() => terminalRef.current?.clear()}>
             清屏
           </Button>
@@ -163,6 +213,30 @@ export function TerminalPanel({ status, sessionId, registerWriter, onOpen, onInp
         </Space>
       </div>
       <div ref={containerRef} className="terminal-host" />
+      <AgentDrawer
+        open={agentOpen}
+        connected={status === "connected"}
+        currentPath={currentPath}
+        plan={agentPlan}
+        stepStates={agentStepStates}
+        generating={agentGenerating}
+        executing={agentExecuting}
+        message={agentMessage}
+        planStream={agentPlanStream}
+        history={agentHistory}
+        uploadedFiles={agentUploadedFiles}
+        uploading={agentUploading}
+        uploadMessage={agentUploadMessage}
+        onClose={() => setAgentOpen(false)}
+        onPlan={onAgentPlan}
+        onExecute={onAgentExecute}
+        onReset={onAgentReset}
+        onUploadFile={onAgentUploadFile}
+        onRemoveUploadedFile={onAgentRemoveUploadedFile}
+        onClearUploadedFiles={onAgentClearUploadedFiles}
+        onLoadHistory={onAgentLoadHistory}
+        onClearHistory={onAgentClearHistory}
+      />
     </section>
   );
 }
