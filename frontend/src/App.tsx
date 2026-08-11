@@ -2,11 +2,13 @@ import {
   ApiOutlined,
   CodeOutlined,
   DesktopOutlined,
+  DisconnectOutlined,
   FolderOutlined,
   MenuFoldOutlined,
-  MenuUnfoldOutlined
+  MenuUnfoldOutlined,
+  ReloadOutlined
 } from "@ant-design/icons";
-import { Alert, Button, ConfigProvider, Layout, Space, Tabs, Tag, Tooltip, Typography, theme } from "antd";
+import { Alert, Button, ConfigProvider, Layout, Modal, Space, Tabs, Tag, Tooltip, Typography, theme } from "antd";
 import type { CSSProperties, PointerEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ConnectionPanel } from "./components/Connection/ConnectionPanel";
@@ -258,33 +260,44 @@ export default function App() {
             <TerminalPanel
               status={shell.status}
               sessionId={shell.sessionId}
-              currentPath={shell.currentPath}
               agentPlan={shell.agentPlan}
-              agentStepStates={shell.agentStepStates}
               agentGenerating={shell.agentGenerating}
-              agentExecuting={shell.agentExecuting}
               agentMessage={shell.agentMessage}
-              agentPlanStream={shell.agentPlanStream}
-              agentHistory={shell.agentHistory}
-              agentUploadedFiles={shell.agentUploadedFiles}
-              agentUploading={shell.agentUploading}
-              agentUploadMessage={shell.agentUploadMessage}
               registerWriter={shell.registerTerminalWriter}
               onOpen={shell.openTerminal}
               onInput={shell.sendTerminalInput}
               onResize={shell.resizeTerminal}
               onAgentPlan={shell.planAgentTask}
-              onAgentExecute={shell.executeAgentPlan}
               onAgentReset={shell.resetAgent}
-              onAgentUploadFile={shell.uploadAgentFile}
-              onAgentRemoveUploadedFile={shell.removeAgentUploadedFile}
-              onAgentClearUploadedFiles={shell.clearAgentUploadedFiles}
-              onAgentLoadHistory={shell.loadAgentHistoryItem}
-              onAgentClearHistory={shell.clearAgentHistoryItems}
             />
           </Layout.Content>
         </Layout>
       </Layout>
+      <Modal
+        open={shell.connectionInterrupted}
+        title={
+          <Space>
+            <DisconnectOutlined />
+            <span>连接已中断</span>
+          </Space>
+        }
+        okText="立即重连"
+        cancelText="连接设置"
+        okButtonProps={{ icon: <ReloadOutlined /> }}
+        closable={false}
+        maskClosable={false}
+        onOk={shell.reconnectNow}
+        onCancel={() => {
+          shell.dismissReconnect();
+          setSidebarView("connection");
+          setSiderCollapsed(false);
+        }}
+      >
+        <Typography.Paragraph>{shell.reconnectMessage || "与服务器的连接已断开。"}</Typography.Paragraph>
+        <Typography.Text type="secondary">
+          系统会自动尝试恢复连接，也可以立即重试或重新填写连接信息。
+        </Typography.Text>
+      </Modal>
     </ConfigProvider>
   );
 }

@@ -23,6 +23,8 @@ export class SSHSession {
   private readonly client = new Client();
   private sftp?: SFTPWrapper;
   private terminal?: ClientChannel;
+  private terminalOutput?: (data: string) => void;
+  private terminalClosed?: (code?: number | null, signal?: string | null) => void;
   private connected = false;
   private lastUsedAt = Date.now();
 
@@ -67,7 +69,14 @@ export class SSHSession {
     onClose: (code?: number | null, signal?: string | null) => void
   ): Promise<void> {
     this.assertConnected();
-    this.terminal?.end();
+    this.terminalOutput = onData;
+    this.terminalClosed = onClose;
+
+    if (this.terminal) {
+      this.resizeTerminal(options.cols, options.rows);
+      this.terminal.write("\r");
+      return;
+    }
 
     const cols = clampNumber(options.cols, 20, 300, 120);
     const rows = clampNumber(options.rows, 5, 120, 32);
@@ -85,15 +94,15 @@ export class SSHSession {
             return;
           }
 
-          this.terminal = stream;
-          stream.on("data", (chunk: Buffer) => onData(chunk.toString("utf8")));
-          stream.stderr.on("data", (chunk: Buffer) => onData(chunk.toString("utf8")));
-          stream.on("close", (code?: number | null, signal?: string | null) => {
-            if (this.terminal === stream) {
-              this.terminal = undefined;
-            }
-            onClose(code, signal);
-          });
+            this.terminal = stream;
+            stream.on("data", (chunk: Buffer) => this.terminalOutput?.(chunk.toString("utf8")));
+            stream.stderr.on("data", (chunk: Buffer) => this.terminalOutput?.(chunk.toString("utf8")));
+            stream.on("close", (code?: number | null, signal?: string | null) => {
+              if (this.terminal === stream) {
+                this.terminal = undefined;
+              }
+              this.terminalClosed?.(code, signal);
+            });
           this.touch();
           resolve();
         }

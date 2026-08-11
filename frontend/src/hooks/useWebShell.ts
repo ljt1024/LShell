@@ -18,6 +18,7 @@ type TerminalWriter = (data: string) => void;
 
 const PERSISTED_SESSION_KEY = "lshell-active-session";
 const MAX_STREAM_CHARS = 30_000;
+const MAX_RECONNECT_DELAY_MS = 10_000;
 
 interface PersistedSession {
   sessionId: string;
@@ -35,6 +36,12 @@ interface PendingAgentUpload {
 
 export function useWebShell() {
   const socketRef = useRef<WebSocket | null>(null);
+  const openSocketRef = useRef<(onOpen: (socket: WebSocket) => void) => void>();
+  const reconnectTimerRef = useRef<number>();
+  const reconnectAttemptRef = useRef(0);
+  const manualDisconnectRef = useRef(false);
+  const mountedRef = useRef(true);
+  const lastConfigRef = useRef<ServerConfig>();
   const terminalWriterRef = useRef<TerminalWriter | null>(null);
   const currentPathRef = useRef("/");
   const requestSequenceRef = useRef(0);
@@ -68,6 +75,8 @@ export function useWebShell() {
   const [agentUploadedFiles, setAgentUploadedFiles] = useState<AgentUploadedFile[]>([]);
   const [agentUploading, setAgentUploading] = useState(false);
   const [agentUploadMessage, setAgentUploadMessage] = useState<string>();
+  const [connectionInterrupted, setConnectionInterrupted] = useState(false);
+  const [reconnectMessage, setReconnectMessage] = useState<string>();
 
   const updateAgentHistory = useCallback((updater: (current: AgentPlanHistoryItem[]) => AgentPlanHistoryItem[]) => {
     setAgentHistory((current) => writeAgentHistory(updater(current)));
@@ -153,9 +162,17 @@ export function useWebShell() {
           }
           break;
         case "connection.ready":
+          reconnectAttemptRef.current = 0;
+          if (reconnectTimerRef.current !== undefined) {
+            window.clearTimeout(reconnectTimerRef.current);
+            reconnectTimerRef.current = undefined;
+          }
           setSessionId(message.sessionId);
           setConnectionName(message.name);
           setStatus("connected");
+          setError(undefined);
+          setConnectionInterrupted(false);
+          setReconnectMessage(undefined);
           persistSession({
             sessionId: message.sessionId,
             name: message.name,
@@ -332,6 +349,12 @@ export function useWebShell() {
             setSessionId(undefined);
             setConnectionName(undefined);
             setStatus("disconnected");
+            setConnectionInterrupted(true);
+            setReconnectMessage(
+              lastConfigRef.current
+                ? "原 SSH 会话已失效，可以使用当前页面保留的连接参数重新建立连接。"
+                : "原 SSH 会话已失效，请返回连接面板重新输入认证信息。"
+            );
           }
           if (message.requestId) {
             const requestedDirectory = directoryRequestsRef.current.get(message.requestId);
@@ -358,31 +381,77 @@ export function useWebShell() {
       const socket = new WebSocket(resolveWebSocketUrl());
       socketRef.current = socket;
 
-      socket.onopen = () => onOpen(socket);
+      socket.onopen = () => {
+        if (!mountedRef.current) {
+          socket.close();
+          return;
+        }
+        onOpen(socket);
+      };
 
       socket.onmessage = (event) => {
         handleMessage(JSON.parse(event.data) as ServerMessage);
       };
 
       socket.onerror = () => {
-        setStatus("error");
-        setError("WebSocket 连接失败");
+        if (!readPersistedSession()) {
+          setStatus("error");
+          setError("WebSocket 连接失败");
+          setConnectionInterrupted(true);
+          setReconnectMessage("无法连接本地服务，请确认后端运行后重试。");
+        }
       };
 
       socket.onclose = () => {
         if (socketRef.current !== socket) {
           return;
         }
-        setStatus((previous) => (previous === "connected" || previous === "connecting" ? "disconnected" : previous));
+        socketRef.current = null;
+        const persistedSession = readPersistedSession();
+        if (!mountedRef.current || manualDisconnectRef.current || !persistedSession?.sessionId) {
+          setStatus((previous) => (previous === "connected" || previous === "connecting" ? "disconnected" : previous));
+          return;
+        }
+
+        const attempt = ++reconnectAttemptRef.current;
+        const delay = Math.min(1_000 * 2 ** (attempt - 1), MAX_RECONNECT_DELAY_MS);
+        setStatus("connecting");
+        setError(`连接中断，${Math.round(delay / 1_000)} 秒后自动重连...`);
+        setConnectionInterrupted(true);
+        setReconnectMessage("连接意外中断，正在尝试恢复原 SSH 会话。");
+        reconnectTimerRef.current = window.setTimeout(() => {
+          if (!mountedRef.current || manualDisconnectRef.current) {
+            return;
+          }
+          openSocketRef.current?.((nextSocket) => {
+            nextSocket.send(
+              JSON.stringify({
+                type: "connection.attach",
+                sessionId: persistedSession.sessionId
+              } satisfies ClientMessage)
+            );
+          });
+        }, delay);
       };
     },
     [handleMessage]
   );
 
+  openSocketRef.current = openSocket;
+
   const connect = useCallback(
     (config: ServerConfig) => {
+      lastConfigRef.current = config;
+      manualDisconnectRef.current = false;
+      reconnectAttemptRef.current = 0;
+      if (reconnectTimerRef.current !== undefined) {
+        window.clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = undefined;
+      }
       setStatus("connecting");
       setError(undefined);
+      setConnectionInterrupted(false);
+      setReconnectMessage(undefined);
       setFiles([]);
       setActiveFilePath(undefined);
       setFileContent("");
@@ -412,6 +481,12 @@ export function useWebShell() {
   );
 
   const disconnect = useCallback(() => {
+    manualDisconnectRef.current = true;
+    reconnectAttemptRef.current = 0;
+    if (reconnectTimerRef.current !== undefined) {
+      window.clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = undefined;
+    }
     clearPersistedSession();
     send({ type: "connection.disconnect" });
     socketRef.current?.close();
@@ -433,7 +508,61 @@ export function useWebShell() {
     setAgentUploadMessage(undefined);
     directoryRequestsRef.current.clear();
     setStatus("disconnected");
+    setConnectionInterrupted(false);
+    setReconnectMessage(undefined);
   }, [replaceAgentStepStates, replaceAgentUploadedFiles, send]);
+
+  const reconnectNow = useCallback(() => {
+    manualDisconnectRef.current = false;
+    reconnectAttemptRef.current = 0;
+    if (reconnectTimerRef.current !== undefined) {
+      window.clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = undefined;
+    }
+
+    const persistedSession = readPersistedSession();
+    if (persistedSession?.sessionId) {
+      setStatus("connecting");
+      setError(undefined);
+      setReconnectMessage("正在恢复原 SSH 会话...");
+      openSocket((socket) => {
+        socket.send(
+          JSON.stringify({
+            type: "connection.attach",
+            sessionId: persistedSession.sessionId
+          } satisfies ClientMessage)
+        );
+      });
+      return;
+    }
+
+    const config = lastConfigRef.current;
+    if (config) {
+      setReconnectMessage("正在重新建立 SSH 连接...");
+      connect(config);
+      return;
+    }
+
+    setStatus("disconnected");
+    setConnectionInterrupted(true);
+    setReconnectMessage("认证信息未保存在页面中，请打开连接设置重新输入后连接。");
+  }, [connect, openSocket]);
+
+  const dismissReconnect = useCallback(() => {
+    manualDisconnectRef.current = true;
+    if (reconnectTimerRef.current !== undefined) {
+      window.clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = undefined;
+    }
+    const socket = socketRef.current;
+    if (socket) {
+      socket.onclose = null;
+      socket.close();
+      socketRef.current = null;
+    }
+    setStatus("disconnected");
+    setConnectionInterrupted(false);
+  }, []);
 
   useEffect(() => {
     const persistedSession = readPersistedSession();
@@ -447,6 +576,7 @@ export function useWebShell() {
     setConnectionName(persistedSession.name);
     setStatus("connecting");
     setError(undefined);
+    manualDisconnectRef.current = false;
 
     openSocket((socket) => {
       socket.send(
@@ -457,6 +587,22 @@ export function useWebShell() {
       );
     });
   }, [openSocket]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (reconnectTimerRef.current !== undefined) {
+        window.clearTimeout(reconnectTimerRef.current);
+      }
+      const socket = socketRef.current;
+      if (socket) {
+        socket.onclose = null;
+        socket.close();
+      }
+      socketRef.current = null;
+    };
+  }, []);
 
   const registerTerminalWriter = useCallback((writer: TerminalWriter) => {
     terminalWriterRef.current = writer;
@@ -664,8 +810,12 @@ export function useWebShell() {
     agentUploadedFiles,
     agentUploading,
     agentUploadMessage,
+    connectionInterrupted,
+    reconnectMessage,
     connect,
     disconnect,
+    reconnectNow,
+    dismissReconnect,
     registerTerminalWriter,
     openTerminal,
     sendTerminalInput,

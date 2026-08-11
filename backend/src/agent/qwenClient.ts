@@ -69,7 +69,7 @@ export async function createAgentPlan(
     }
   ], callbacks.onDelta);
 
-  return normalizeAgentPlan(parseJsonObject(content), currentPath);
+  return normalizeNavigationPlan(normalizeAgentPlan(parseJsonObject(content), currentPath), cleanIntent);
 }
 
 async function callQwen(
@@ -193,6 +193,8 @@ function buildSystemPrompt(): string {
     "JSON 结构：{ title, summary, assumptions, safetyNotes, steps }。",
     "steps 最多 8 个。每个 step 必须包含 title、description、command。",
     "命令必须是非交互式 shell 命令，避免需要手动输入密码、编辑器、交互确认或长时间前台进程。",
+    "路径语义必须忠实于用户原文：用户说 home 或 home 目录时指 /home；只有明确说家目录、主目录或当前用户目录时才使用 ~。",
+    "生成 cd 命令时优先使用明确的绝对路径或 ~，不要使用 $HOME，不要擅自把用户给出的目录名替换成环境变量。",
     "优先生成可审计、可回滚的计划：先检查路径/文件，再备份关键配置，再修改，再测试，最后 reload/restart。",
     "涉及 nginx 配置时，修改前备份，修改后必须包含 nginx -t，只有测试通过后才 reload。",
     "涉及 sudo 时尽量使用 sudo -n，让没有免密权限时快速失败。",
@@ -203,6 +205,30 @@ function buildSystemPrompt(): string {
     "如果用户提到本地文件上传但 uploadedFiles 为空，你无法读取本地文件内容；请提示先在智能体上传区上传，或把命令写成针对远程路径执行。",
     "不要生成 rm -rf /、磁盘格式化、关机重启、fork bomb、覆盖系统认证文件等危险命令。"
   ].join("\n");
+}
+
+function normalizeNavigationPlan(plan: AgentPlan, intent: string): AgentPlan {
+  const wantsHomeDirectory = /(?:cd|进入|切换|跳转|前往|到)\s*(?:到|至)?\s*home(?:\s*目录)?/iu.test(intent);
+  const wantsUserHome = /(?:家目录|主目录|用户目录|当前用户目录)/u.test(intent);
+
+  if (!wantsHomeDirectory && !wantsUserHome) {
+    return plan;
+  }
+
+  const target = wantsUserHome ? "~" : "/home";
+  return {
+    ...plan,
+    steps: plan.steps.map((step) => {
+      if (!/^\s*cd\s+(?:\$\{?HOME\}?|~|\/?home)\s*$/iu.test(step.command)) {
+        return step;
+      }
+      return {
+        ...step,
+        command: `cd ${target}`,
+        description: wantsUserHome ? "进入当前用户的家目录" : "进入系统的 /home 目录"
+      };
+    })
+  };
 }
 
 function parseJsonObject(content: string): unknown {

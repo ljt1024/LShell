@@ -1,66 +1,37 @@
-import { ClearOutlined, CodeOutlined, FullscreenExitOutlined, FullscreenOutlined, RobotOutlined } from "@ant-design/icons";
+import { ClearOutlined, CodeOutlined, FullscreenExitOutlined, FullscreenOutlined } from "@ant-design/icons";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { Button, Space, Tag, Tooltip, Typography } from "antd";
 import { useEffect, useRef, useState } from "react";
-import type { AgentPlan, AgentPlanHistoryItem, AgentStepState, AgentUploadedFile, ConnectionStatus } from "../../types/protocol";
-import { AgentDrawer } from "../Agent/AgentDrawer";
+import type { AgentPlan, ConnectionStatus } from "../../types/protocol";
 
 interface TerminalPanelProps {
   status: ConnectionStatus;
   sessionId?: string;
-  currentPath: string;
   agentPlan?: AgentPlan;
-  agentStepStates: Record<string, AgentStepState>;
   agentGenerating: boolean;
-  agentExecuting: boolean;
   agentMessage?: string;
-  agentPlanStream: string;
-  agentHistory: AgentPlanHistoryItem[];
-  agentUploadedFiles: AgentUploadedFile[];
-  agentUploading: boolean;
-  agentUploadMessage?: string;
   registerWriter: (writer: (data: string) => void) => () => void;
   onOpen: (cols: number, rows: number) => void;
   onInput: (data: string) => void;
   onResize: (cols: number, rows: number) => void;
   onAgentPlan: (intent: string) => void;
-  onAgentExecute: (plan: AgentPlan) => void;
   onAgentReset: () => void;
-  onAgentUploadFile: (file: File, directory: string) => Promise<void>;
-  onAgentRemoveUploadedFile: (fileId: string) => void;
-  onAgentClearUploadedFiles: () => void;
-  onAgentLoadHistory: (item: AgentPlanHistoryItem) => void;
-  onAgentClearHistory: () => void;
 }
 
 export function TerminalPanel({
   status,
   sessionId,
-  currentPath,
   agentPlan,
-  agentStepStates,
   agentGenerating,
-  agentExecuting,
   agentMessage,
-  agentPlanStream,
-  agentHistory,
-  agentUploadedFiles,
-  agentUploading,
-  agentUploadMessage,
   registerWriter,
   onOpen,
   onInput,
   onResize,
   onAgentPlan,
-  onAgentExecute,
-  onAgentReset,
-  onAgentUploadFile,
-  onAgentRemoveUploadedFile,
-  onAgentClearUploadedFiles,
-  onAgentLoadHistory,
-  onAgentClearHistory
+  onAgentReset
 }: TerminalPanelProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -68,8 +39,12 @@ export function TerminalPanel({
   const inputRef = useRef(onInput);
   const resizeRef = useRef(onResize);
   const statusRef = useRef(status);
+  const pendingShellInputRef = useRef("");
+  const openedSessionRef = useRef<string>();
+  const agentPhaseRef = useRef<"shell" | "planning">("shell");
+  const onAgentPlanRef = useRef(onAgentPlan);
+  const onAgentResetRef = useRef(onAgentReset);
   const [fullscreen, setFullscreen] = useState(false);
-  const [agentOpen, setAgentOpen] = useState(false);
 
   useEffect(() => {
     inputRef.current = onInput;
@@ -82,6 +57,11 @@ export function TerminalPanel({
   useEffect(() => {
     statusRef.current = status;
   }, [status]);
+
+  useEffect(() => {
+    onAgentPlanRef.current = onAgentPlan;
+    onAgentResetRef.current = onAgentReset;
+  }, [onAgentPlan, onAgentReset]);
 
   useEffect(() => {
     if (!containerRef.current) {
@@ -117,9 +97,21 @@ export function TerminalPanel({
     terminal.writeln("\x1b[38;2;101;193;140mLShell terminal\x1b[0m");
 
     const dataSubscription = terminal.onData((data) => {
-      if (statusRef.current === "connected") {
-        inputRef.current(data);
+      if (statusRef.current !== "connected") {
+        return;
       }
+      const pendingInput = pendingShellInputRef.current;
+      pendingShellInputRef.current = updatePendingShellInput(pendingInput, data);
+      if ((data === "\r" || data === "\n") && shouldOpenAgentMode(pendingInput)) {
+        inputRef.current("\x15");
+        inputRef.current("\r");
+        agentPhaseRef.current = "planning";
+        onAgentResetRef.current();
+        terminal.write("\r\n\x1b[38;2;94;201;195m[智能体] 正在根据输入推荐 Shell 命令...\x1b[0m\r\n");
+        onAgentPlanRef.current(pendingInput.trim());
+        return;
+      }
+      inputRef.current(data);
     });
     const cleanupWriter = registerWriter((data) => terminal.write(data));
 
@@ -151,11 +143,52 @@ export function TerminalPanel({
       return;
     }
 
+    if (openedSessionRef.current === sessionId) {
+      return;
+    }
+
     terminal.reset();
+    pendingShellInputRef.current = "";
+    agentPhaseRef.current = "shell";
     fitAddon.fit();
     terminal.writeln("\x1b[38;2;247;201;72mopening remote shell...\x1b[0m");
+    openedSessionRef.current = sessionId;
     onOpen(terminal.cols, terminal.rows);
   }, [onOpen, sessionId, status]);
+
+  useEffect(() => {
+    if (status !== "connected") {
+      openedSessionRef.current = undefined;
+    }
+  }, [status]);
+
+  useEffect(() => {
+    const terminal = terminalRef.current;
+    if (!terminal || !agentPlan || agentPhaseRef.current !== "planning") {
+      return;
+    }
+
+    const autoExecute = agentPlan.steps.length > 0 && agentPlan.steps.every((step) => step.riskLevel === "low");
+    terminal.write(formatAgentPlan(agentPlan, autoExecute));
+    if (autoExecute) {
+      agentPhaseRef.current = "shell";
+      pendingShellInputRef.current = "";
+      inputRef.current(`${joinAgentCommands(agentPlan)}\r`);
+      return;
+    }
+    agentPhaseRef.current = "shell";
+  }, [agentPlan]);
+
+  useEffect(() => {
+    const terminal = terminalRef.current;
+    if (!terminal || agentPhaseRef.current !== "planning" || agentGenerating || !agentMessage || agentPlan) {
+      return;
+    }
+
+    terminal.write(`\r\n\x1b[38;2;229;107;111m[智能体] ${agentMessage}\x1b[0m\r\n`);
+    agentPhaseRef.current = "shell";
+    inputRef.current("\r");
+  }, [agentGenerating, agentMessage, agentPlan]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -196,9 +229,6 @@ export function TerminalPanel({
           <Tag color={status === "connected" ? "success" : "default"}>{status === "connected" ? "live" : "offline"}</Tag>
         </Space>
         <Space size={6}>
-          <Button size="small" icon={<RobotOutlined />} onClick={() => setAgentOpen(true)}>
-            智能体
-          </Button>
           <Button size="small" icon={<ClearOutlined />} onClick={() => terminalRef.current?.clear()}>
             清屏
           </Button>
@@ -213,30 +243,45 @@ export function TerminalPanel({
         </Space>
       </div>
       <div ref={containerRef} className="terminal-host" />
-      <AgentDrawer
-        open={agentOpen}
-        connected={status === "connected"}
-        currentPath={currentPath}
-        plan={agentPlan}
-        stepStates={agentStepStates}
-        generating={agentGenerating}
-        executing={agentExecuting}
-        message={agentMessage}
-        planStream={agentPlanStream}
-        history={agentHistory}
-        uploadedFiles={agentUploadedFiles}
-        uploading={agentUploading}
-        uploadMessage={agentUploadMessage}
-        onClose={() => setAgentOpen(false)}
-        onPlan={onAgentPlan}
-        onExecute={onAgentExecute}
-        onReset={onAgentReset}
-        onUploadFile={onAgentUploadFile}
-        onRemoveUploadedFile={onAgentRemoveUploadedFile}
-        onClearUploadedFiles={onAgentClearUploadedFiles}
-        onLoadHistory={onAgentLoadHistory}
-        onClearHistory={onAgentClearHistory}
-      />
     </section>
   );
+}
+
+function formatAgentPlan(plan: AgentPlan, autoExecute: boolean): string {
+  const steps = plan.steps
+    .map((step, index) => {
+      const risk = step.riskLevel === "low" ? "低" : step.riskLevel === "medium" ? "中" : step.riskLevel === "high" ? "高" : "阻断";
+      return `  ${index + 1}. ${step.title} [风险: ${risk}]\r\n     $ ${step.command}`;
+    })
+    .join("\r\n");
+  const blocked = plan.steps.some((step) => step.riskLevel === "blocked");
+  const note = blocked
+    ? "计划包含被阻断命令，请勿执行。"
+    : autoExecute
+      ? "全部为低风险命令，正在自动执行..."
+      : "包含非低风险操作，仅提供推荐，请确认后手动执行。";
+  return `\r\n\x1b[1;38;2;94;201;195m[智能体推荐] ${plan.title}\x1b[0m\r\n${plan.summary}\r\n${steps}\r\n\x1b[38;2;247;201;72m${note}\x1b[0m\r\n`;
+}
+
+function joinAgentCommands(plan: AgentPlan): string {
+  return plan.steps.map((step) => step.command.trim()).filter(Boolean).join(" && ");
+}
+
+const CHINESE_TEXT_PATTERN = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/u;
+
+export function shouldOpenAgentMode(input: string): boolean {
+  return CHINESE_TEXT_PATTERN.test(input);
+}
+
+function updatePendingShellInput(current: string, data: string): string {
+  if (data.includes("\r") || data.includes("\n") || data.includes("\x03") || data.includes("\x15")) {
+    return "";
+  }
+  if (data === "\x7f") {
+    return Array.from(current).slice(0, -1).join("");
+  }
+  if (!data.startsWith("\x1b") && !/[\x00-\x1f\x7f]/u.test(data)) {
+    return `${current}${data}`;
+  }
+  return current;
 }
