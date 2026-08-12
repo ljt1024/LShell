@@ -4,6 +4,7 @@ import type { RawData } from "ws";
 import { assertExecutablePlan } from "../agent/safety.js";
 import { createAgentPlan } from "../agent/qwenClient.js";
 import type { ClientMessage, ServerMessage } from "../models/protocol.js";
+import { collectServerOverview } from "../monitor/collectOverview.js";
 import { joinRemotePath, normalizeRemotePath } from "../sftp/remotePath.js";
 import { ConnectionManager } from "../ssh/ConnectionManager.js";
 import { normalizeServerConfig } from "../utils/validation.js";
@@ -95,6 +96,12 @@ export function attachWebSocketServer(server: Server, connections: ConnectionMan
 
           case "terminal.resize": {
             requireSession().resizeTerminal(message.cols, message.rows);
+            break;
+          }
+
+          case "server.overview": {
+            const overview = await collectServerOverview(requireSession());
+            send({ type: "server.overview", overview, requestId: message.requestId });
             break;
           }
 

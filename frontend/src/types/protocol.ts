@@ -67,6 +67,23 @@ export interface AgentUploadedFile {
   uploadedAt: string;
 }
 
+export interface ServerOverview {
+  collectedAt: string;
+  hostname: string;
+  os: string;
+  kernel: string;
+  uptimeSeconds: number;
+  loadAverage: [number, number, number];
+  cpuPercent?: number;
+  memory: { totalBytes: number; usedBytes: number; availableBytes: number; usedPercent: number };
+  swap: { totalBytes: number; usedBytes: number; usedPercent: number };
+  disks: Array<{ filesystem: string; mount: string; totalBytes: number; usedBytes: number; usedPercent: number }>;
+  firewall: { provider: string; enabled?: boolean; summary: string };
+  nginx: { installed: boolean; running?: boolean; version?: string; configValid?: boolean };
+  accessIps: Array<{ ip: string; requests: number; latitude?: number; longitude?: number; country?: string; city?: string }>;
+  warnings: string[];
+}
+
 export type AgentStepStatus = "pending" | "running" | "success" | "failed";
 
 export interface AgentStepState {
@@ -99,6 +116,7 @@ export type ClientMessage =
   | { type: "terminal.open"; cols: number; rows: number }
   | { type: "terminal.input"; data: string }
   | { type: "terminal.resize"; cols: number; rows: number }
+  | { type: "server.overview"; requestId?: string }
   | { type: "file.list"; path: string; requestId?: string }
   | { type: "file.read"; path: string }
   | { type: "file.write"; path: string; content: string }
@@ -115,6 +133,7 @@ export type ServerMessage =
   | { type: "connection.ready"; sessionId: string; name: string }
   | { type: "terminal.output"; data: string }
   | { type: "terminal.closed"; code?: number | null; signal?: string | null }
+  | { type: "server.overview"; overview: ServerOverview; requestId?: string }
   | { type: "file.list"; path: string; files: FileInfo[]; requestId?: string }
   | { type: "file.read"; path: string; content: string }
   | { type: "file.saved"; path: string }

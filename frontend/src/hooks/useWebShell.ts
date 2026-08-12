@@ -11,6 +11,7 @@ import type {
   ConnectionStatus,
   FileInfo,
   ServerConfig,
+  ServerOverview,
   ServerMessage
 } from "../types/protocol";
 
@@ -77,6 +78,8 @@ export function useWebShell() {
   const [agentUploadMessage, setAgentUploadMessage] = useState<string>();
   const [connectionInterrupted, setConnectionInterrupted] = useState(false);
   const [reconnectMessage, setReconnectMessage] = useState<string>();
+  const [serverOverview, setServerOverview] = useState<ServerOverview>();
+  const [serverOverviewLoading, setServerOverviewLoading] = useState(false);
 
   const updateAgentHistory = useCallback((updater: (current: AgentPlanHistoryItem[]) => AgentPlanHistoryItem[]) => {
     setAgentHistory((current) => writeAgentHistory(updater(current)));
@@ -185,6 +188,10 @@ export function useWebShell() {
           break;
         case "terminal.closed":
           terminalWriterRef.current?.("\r\n[terminal closed]\r\n");
+          break;
+        case "server.overview":
+          setServerOverview(message.overview);
+          setServerOverviewLoading(false);
           break;
         case "file.list":
           setDirectoryCache((current) => ({ ...current, [message.path]: message.files }));
@@ -335,6 +342,9 @@ export function useWebShell() {
             setAgentMessage(message.message);
             persistActiveAgentPlan("failed");
           }
+          if (message.requestType === "server.overview") {
+            setServerOverviewLoading(false);
+          }
           if (message.requestId) {
             const pendingUpload = pendingAgentUploadsRef.current.get(message.requestId);
             if (pendingUpload) {
@@ -453,6 +463,7 @@ export function useWebShell() {
       setConnectionInterrupted(false);
       setReconnectMessage(undefined);
       setFiles([]);
+      setServerOverview(undefined);
       setActiveFilePath(undefined);
       setFileContent("");
       setDirty(false);
@@ -494,6 +505,7 @@ export function useWebShell() {
     setSessionId(undefined);
     setConnectionName(undefined);
     setFiles([]);
+    setServerOverview(undefined);
     setDirectoryCache({});
     setLoadingDirectories([]);
     setAgentPlan(undefined);
@@ -688,6 +700,11 @@ export function useWebShell() {
     [send]
   );
 
+  const refreshServerOverview = useCallback(() => {
+    setServerOverviewLoading(true);
+    send({ type: "server.overview", requestId: `overview:${++requestSequenceRef.current}` });
+  }, [send]);
+
   const readFile = useCallback((path: string) => send({ type: "file.read", path }), [send]);
 
   const saveFile = useCallback(() => {
@@ -812,6 +829,8 @@ export function useWebShell() {
     agentUploadMessage,
     connectionInterrupted,
     reconnectMessage,
+    serverOverview,
+    serverOverviewLoading,
     connect,
     disconnect,
     reconnectNow,
@@ -820,6 +839,7 @@ export function useWebShell() {
     openTerminal,
     sendTerminalInput,
     resizeTerminal,
+    refreshServerOverview,
     listFiles,
     loadDirectory,
     readFile,

@@ -1,0 +1,10 @@
+import { ReloadOutlined, SafetyCertificateOutlined } from "@ant-design/icons";
+import { Button, Empty, Space, Tag, Typography } from "antd";
+import type { ServerOverview } from "../../types/protocol";
+
+export function FirewallPanel({ connected, overview, loading, onRefresh }: { connected: boolean; overview?: ServerOverview; loading: boolean; onRefresh: () => void }) {
+  return <section className="ops-panel"><PanelHeader title="防火墙" description="当前规则引擎与运行状态" loading={loading} onRefresh={onRefresh} />{!connected ? <Empty description="请先连接服务器" /> : overview ? <div className="ops-content"><div className="ops-status-hero"><SafetyCertificateOutlined /><div><Typography.Title level={3}>{overview.firewall.enabled === true ? "防护已启用" : overview.firewall.enabled === false ? "防护未启用" : "状态不可确定"}</Typography.Title><Typography.Text>{overview.firewall.summary}</Typography.Text></div><Tag color={overview.firewall.enabled ? "success" : overview.firewall.enabled === false ? "warning" : "default"}>{overview.firewall.provider}</Tag></div><div className="ops-detail-grid"><Detail label="规则引擎" value={overview.firewall.provider} /><Detail label="运行状态" value={overview.firewall.enabled === true ? "开启" : overview.firewall.enabled === false ? "关闭" : "未知"} /><Detail label="采集方式" value="只读检测" /><Detail label="修改策略" value="尚未开放" /></div><div className="ops-notice"><Typography.Text strong>安全边界</Typography.Text><Typography.Paragraph>当前页面只读取防火墙状态，不会修改端口或 IP 规则。后续开放写操作时需要增加 SSH 端口保护、变更预览和自动回滚。</Typography.Paragraph></div></div> : <Empty description="暂无防火墙状态"><Button onClick={onRefresh}>加载状态</Button></Empty>}</section>;
+}
+
+function PanelHeader({ title, description, loading, onRefresh }: { title: string; description: string; loading: boolean; onRefresh: () => void }) { return <header className="ops-panel-header"><div><Typography.Title level={3}>{title}</Typography.Title><Typography.Text>{description}</Typography.Text></div><Button icon={<ReloadOutlined spin={loading} />} onClick={onRefresh}>刷新</Button></header>; }
+function Detail({ label, value }: { label: string; value: string }) { return <div className="ops-detail"><span>{label}</span><strong>{value}</strong></div>; }

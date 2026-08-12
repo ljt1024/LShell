@@ -4,17 +4,22 @@ import {
   DesktopOutlined,
   DisconnectOutlined,
   FolderOutlined,
+  GlobalOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
-  ReloadOutlined
+  ReloadOutlined,
+  SafetyCertificateOutlined
 } from "@ant-design/icons";
-import { Alert, Button, ConfigProvider, Layout, Modal, Space, Tabs, Tag, Tooltip, Typography, theme } from "antd";
+import { Alert, Button, ConfigProvider, Layout, Menu, Modal, Space, Tag, Tooltip, Typography, theme } from "antd";
 import type { CSSProperties, PointerEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ConnectionPanel } from "./components/Connection/ConnectionPanel";
 import { FileManager } from "./components/FileManager/FileManager";
 import { DirectoryTreePanel } from "./components/FileTree/DirectoryTreePanel";
 import { TerminalPanel } from "./components/Terminal/TerminalPanel";
+import { ServerOverviewPanel } from "./components/Server/ServerOverviewPanel";
+import { FirewallPanel } from "./components/Server/FirewallPanel";
+import { NginxPanel } from "./components/Server/NginxPanel";
 import { useWebShell } from "./hooks/useWebShell";
 import "./styles.css";
 
@@ -25,12 +30,12 @@ export default function App() {
   const isResizingRef = useRef(false);
   const [siderCollapsed, setSiderCollapsed] = useState(false);
   const [filePanePercent, setFilePanePercent] = useState(58);
-  const [sidebarView, setSidebarView] = useState<"files" | "connection">("connection");
+  const [workspaceView, setWorkspaceView] = useState<"overview" | "files" | "firewall" | "nginx" | "connection">("connection");
   const [desktopInfo, setDesktopInfo] = useState<LShellDesktopRuntimeInfo>();
 
   useEffect(() => {
     if (connected) {
-      setSidebarView("files");
+      setWorkspaceView("overview");
     }
   }, [connected]);
 
@@ -143,34 +148,25 @@ export default function App() {
                 <Typography.Text>Remote workspace</Typography.Text>
               </div>
             </div>
-            <Tabs
-              className="sidebar-tabs"
-              activeKey={sidebarView}
-              onChange={(key) => setSidebarView(key as "files" | "connection")}
+            <Menu
+              className="workspace-nav"
+              mode="inline"
+              selectedKeys={[workspaceView]}
+              onSelect={({ key }) => setWorkspaceView(key as typeof workspaceView)}
               items={[
-                {
-                  key: "files",
-                  label: <span><FolderOutlined />目录</span>,
-                  children: (
-                    <DirectoryTreePanel
-                      connected={connected}
-                      currentPath={shell.currentPath}
-                      directoryCache={shell.directoryCache}
-                      loadingDirectories={shell.loadingDirectories}
-                      onNavigate={shell.listFiles}
-                      onLoadDirectory={shell.loadDirectory}
-                    />
-                  )
-                },
-                {
-                  key: "connection",
-                  label: <span><ApiOutlined />连接</span>,
-                  children: (
-                    <ConnectionPanel status={shell.status} onConnect={shell.connect} onDisconnect={shell.disconnect} />
-                  )
-                }
+                { key: "overview", icon: <DesktopOutlined />, label: "服务器概览", disabled: !connected },
+                { key: "files", icon: <FolderOutlined />, label: "服务器目录", disabled: !connected },
+                { key: "firewall", icon: <SafetyCertificateOutlined />, label: "防火墙", disabled: !connected },
+                { key: "nginx", icon: <GlobalOutlined />, label: "Nginx 配置", disabled: !connected },
+                { type: "divider" },
+                { key: "connection", icon: <ApiOutlined />, label: "连接管理" }
               ]}
             />
+            <div className="workspace-nav-spacer" />
+            <div className="workspace-nav-footer">
+              <span className={`workspace-nav-indicator${connected ? " is-connected" : ""}`} />
+              <div><Typography.Text>{connected ? shell.connectionName : "未连接"}</Typography.Text><Typography.Text>{connected ? "SSH session active" : "Select a server"}</Typography.Text></div>
+            </div>
           </div>
         </Layout.Sider>
         <Layout className="app-main">
@@ -212,64 +208,66 @@ export default function App() {
               onClose={shell.clearError}
             />
           ) : null}
-          <Layout.Content ref={workspaceRef} className="workspace" style={workspaceStyle}>
-            <FileManager
-              connected={connected}
-              files={shell.files}
-              currentPath={shell.currentPath}
-              activeFilePath={shell.activeFilePath}
-              fileContent={shell.fileContent}
-              dirty={shell.dirty}
-              onList={shell.listFiles}
-              onRead={shell.readFile}
-              onSave={shell.saveFile}
-              onCloseEditor={shell.closeEditor}
-              onContentChange={shell.updateFileContent}
-              onMkdir={shell.mkdir}
-              onRemove={shell.remove}
-              onRename={shell.rename}
-              onUpload={shell.uploadFile}
-              onDownload={shell.downloadFile}
-            />
-            <div
-              className="workspace-resizer"
-              role="separator"
-              aria-label="调整文件区和终端区高度"
-              aria-orientation="horizontal"
-              aria-valuemin={32}
-              aria-valuemax={74}
-              aria-valuenow={Math.round(filePanePercent)}
-              tabIndex={0}
-              onPointerDown={startPaneResize}
-              onPointerMove={movePaneResize}
-              onPointerUp={stopPaneResize}
-              onPointerCancel={stopPaneResize}
-              onKeyDown={(event) => {
-                if (event.key === "ArrowUp") {
-                  nudgePaneResize(-4);
-                  event.preventDefault();
-                }
-                if (event.key === "ArrowDown") {
-                  nudgePaneResize(4);
-                  event.preventDefault();
-                }
-              }}
-            >
-              <span className="resizer-grip" />
+          <Layout.Content
+            ref={workspaceRef}
+            className={`workspace${workspaceView === "files" ? " workspace-with-terminal" : " workspace-single-panel"}`}
+            style={workspaceStyle}
+          >
+            <div className="primary-workspace-panel">
+              {workspaceView === "overview" ? <ServerOverviewPanel connected={connected} overview={shell.serverOverview} loading={shell.serverOverviewLoading} onRefresh={shell.refreshServerOverview} /> : null}
+              {workspaceView === "files" ? (
+                <div className="file-workspace">
+                  <DirectoryTreePanel connected={connected} currentPath={shell.currentPath} directoryCache={shell.directoryCache} loadingDirectories={shell.loadingDirectories} onNavigate={shell.listFiles} onLoadDirectory={shell.loadDirectory} />
+                  <FileManager connected={connected} files={shell.files} currentPath={shell.currentPath} activeFilePath={shell.activeFilePath} fileContent={shell.fileContent} dirty={shell.dirty} onList={shell.listFiles} onRead={shell.readFile} onSave={shell.saveFile} onCloseEditor={shell.closeEditor} onContentChange={shell.updateFileContent} onMkdir={shell.mkdir} onRemove={shell.remove} onRename={shell.rename} onUpload={shell.uploadFile} onDownload={shell.downloadFile} />
+                </div>
+              ) : null}
+              {workspaceView === "firewall" ? <FirewallPanel connected={connected} overview={shell.serverOverview} loading={shell.serverOverviewLoading} onRefresh={shell.refreshServerOverview} /> : null}
+              {workspaceView === "nginx" ? <NginxPanel connected={connected} overview={shell.serverOverview} loading={shell.serverOverviewLoading} onRefresh={shell.refreshServerOverview} /> : null}
+              {workspaceView === "connection" ? <ConnectionPanel status={shell.status} onConnect={shell.connect} onDisconnect={shell.disconnect} /> : null}
             </div>
-            <TerminalPanel
-              status={shell.status}
-              sessionId={shell.sessionId}
-              agentPlan={shell.agentPlan}
-              agentGenerating={shell.agentGenerating}
-              agentMessage={shell.agentMessage}
-              registerWriter={shell.registerTerminalWriter}
-              onOpen={shell.openTerminal}
-              onInput={shell.sendTerminalInput}
-              onResize={shell.resizeTerminal}
-              onAgentPlan={shell.planAgentTask}
-              onAgentReset={shell.resetAgent}
-            />
+            {workspaceView === "files" ? (
+              <>
+                <div
+                  className="workspace-resizer"
+                  role="separator"
+                  aria-label="调整文件区和终端区高度"
+                  aria-orientation="horizontal"
+                  aria-valuemin={32}
+                  aria-valuemax={74}
+                  aria-valuenow={Math.round(filePanePercent)}
+                  tabIndex={0}
+                  onPointerDown={startPaneResize}
+                  onPointerMove={movePaneResize}
+                  onPointerUp={stopPaneResize}
+                  onPointerCancel={stopPaneResize}
+                  onKeyDown={(event) => {
+                    if (event.key === "ArrowUp") {
+                      nudgePaneResize(-4);
+                      event.preventDefault();
+                    }
+                    if (event.key === "ArrowDown") {
+                      nudgePaneResize(4);
+                      event.preventDefault();
+                    }
+                  }}
+                >
+                  <span className="resizer-grip" />
+                </div>
+                <TerminalPanel
+                  status={shell.status}
+                  sessionId={shell.sessionId}
+                  agentPlan={shell.agentPlan}
+                  agentGenerating={shell.agentGenerating}
+                  agentMessage={shell.agentMessage}
+                  registerWriter={shell.registerTerminalWriter}
+                  onOpen={shell.openTerminal}
+                  onInput={shell.sendTerminalInput}
+                  onResize={shell.resizeTerminal}
+                  onAgentPlan={shell.planAgentTask}
+                  onAgentReset={shell.resetAgent}
+                />
+              </>
+            ) : null}
           </Layout.Content>
         </Layout>
       </Layout>
@@ -289,7 +287,7 @@ export default function App() {
         onOk={shell.reconnectNow}
         onCancel={() => {
           shell.dismissReconnect();
-          setSidebarView("connection");
+          setWorkspaceView("connection");
           setSiderCollapsed(false);
         }}
       >
