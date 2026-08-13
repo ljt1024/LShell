@@ -221,7 +221,7 @@ export default function App() {
                   <FileManager connected={connected} files={shell.files} currentPath={shell.currentPath} activeFilePath={shell.activeFilePath} fileContent={shell.fileContent} dirty={shell.dirty} onList={shell.listFiles} onRead={shell.readFile} onSave={shell.saveFile} onCloseEditor={shell.closeEditor} onContentChange={shell.updateFileContent} onMkdir={shell.mkdir} onRemove={shell.remove} onRename={shell.rename} onUpload={shell.uploadFile} onDownload={shell.downloadFile} />
                 </div>
               ) : null}
-              {workspaceView === "firewall" ? <FirewallPanel connected={connected} overview={shell.serverOverview} loading={shell.serverOverviewLoading} onRefresh={shell.refreshServerOverview} /> : null}
+              {workspaceView === "firewall" ? <FirewallPanel connected={connected} overview={shell.serverOverview} state={shell.firewallState} aliyunState={shell.aliyunSecurityGroups} loading={shell.firewallLoading || shell.serverOverviewLoading} aliyunLoading={shell.aliyunSecurityGroupsLoading} onRefresh={() => { shell.refreshServerOverview(); shell.refreshFirewall(); }} onRefreshAliyun={shell.refreshAliyunSecurityGroups} onAddRule={shell.addFirewallRule} onRemoveRule={shell.removeFirewallRule} /> : null}
               {workspaceView === "nginx" ? <NginxPanel connected={connected} overview={shell.serverOverview} loading={shell.serverOverviewLoading} onRefresh={shell.refreshServerOverview} /> : null}
               {workspaceView === "connection" ? <ConnectionPanel status={shell.status} onConnect={shell.connect} onDisconnect={shell.disconnect} /> : null}
             </div>

@@ -5,6 +5,8 @@ import { assertExecutablePlan } from "../agent/safety.js";
 import { createAgentPlan } from "../agent/qwenClient.js";
 import type { ClientMessage, ServerMessage } from "../models/protocol.js";
 import { collectServerOverview } from "../monitor/collectOverview.js";
+import { addFirewallRule, readFirewallState, removeFirewallRule } from "../firewall/manageFirewall.js";
+import { readAliyunSecurityGroups } from "../cloud/aliyunSecurityGroups.js";
 import { joinRemotePath, normalizeRemotePath } from "../sftp/remotePath.js";
 import { ConnectionManager } from "../ssh/ConnectionManager.js";
 import { normalizeServerConfig } from "../utils/validation.js";
@@ -102,6 +104,30 @@ export function attachWebSocketServer(server: Server, connections: ConnectionMan
           case "server.overview": {
             const overview = await collectServerOverview(requireSession());
             send({ type: "server.overview", overview, requestId: message.requestId });
+            break;
+          }
+
+          case "firewall.list": {
+            const state = await readFirewallState(requireSession());
+            send({ type: "firewall.state", state, requestId: message.requestId });
+            break;
+          }
+
+          case "firewall.add": {
+            const state = await addFirewallRule(requireSession(), message);
+            send({ type: "firewall.state", state, requestId: message.requestId });
+            break;
+          }
+
+          case "firewall.remove": {
+            const state = await removeFirewallRule(requireSession(), message.ruleId);
+            send({ type: "firewall.state", state, requestId: message.requestId });
+            break;
+          }
+
+          case "cloud.aliyun-security-groups": {
+            const state = await readAliyunSecurityGroups(requireSession());
+            send({ type: "cloud.aliyun-security-groups", state, requestId: message.requestId });
             break;
           }
 

@@ -84,6 +84,53 @@ export interface ServerOverview {
   warnings: string[];
 }
 
+export type FirewallRuleAction = "allow" | "deny";
+export type FirewallRuleProtocol = "tcp" | "udp" | "any";
+
+export interface FirewallRule {
+  id: string;
+  action: FirewallRuleAction;
+  source: string;
+  port?: number;
+  protocol: FirewallRuleProtocol;
+  description?: string;
+  raw: string;
+  removable: boolean;
+}
+
+export interface FirewallState {
+  provider: string;
+  enabled?: boolean;
+  rules: FirewallRule[];
+  warning?: string;
+}
+
+export interface CloudSecurityGroupRule {
+  id: string;
+  groupId: string;
+  groupName: string;
+  direction: "ingress" | "egress";
+  action: "allow" | "deny";
+  source: string;
+  destination: string;
+  protocol: string;
+  portRange: string;
+  priority?: string;
+  description?: string;
+}
+
+export interface AliyunSecurityGroupState {
+  provider: "aliyun";
+  available: boolean;
+  instanceId?: string;
+  regionId?: string;
+  roleName?: string;
+  groups: Array<{ id: string; name: string; description?: string }>;
+  rules: CloudSecurityGroupRule[];
+  warning?: string;
+  syncedAt: string;
+}
+
 export type AgentStepStatus = "pending" | "running" | "success" | "failed";
 
 export interface AgentStepState {
@@ -117,6 +164,10 @@ export type ClientMessage =
   | { type: "terminal.input"; data: string }
   | { type: "terminal.resize"; cols: number; rows: number }
   | { type: "server.overview"; requestId?: string }
+  | { type: "firewall.list"; requestId?: string }
+  | { type: "firewall.add"; action: FirewallRuleAction; source: string; port?: number; protocol?: FirewallRuleProtocol; requestId?: string }
+  | { type: "firewall.remove"; ruleId: string; requestId?: string }
+  | { type: "cloud.aliyun-security-groups"; requestId?: string }
   | { type: "file.list"; path: string; requestId?: string }
   | { type: "file.read"; path: string }
   | { type: "file.write"; path: string; content: string }
@@ -134,6 +185,8 @@ export type ServerMessage =
   | { type: "terminal.output"; data: string }
   | { type: "terminal.closed"; code?: number | null; signal?: string | null }
   | { type: "server.overview"; overview: ServerOverview; requestId?: string }
+  | { type: "firewall.state"; state: FirewallState; requestId?: string }
+  | { type: "cloud.aliyun-security-groups"; state: AliyunSecurityGroupState; requestId?: string }
   | { type: "file.list"; path: string; files: FileInfo[]; requestId?: string }
   | { type: "file.read"; path: string; content: string }
   | { type: "file.saved"; path: string }

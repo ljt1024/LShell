@@ -7,9 +7,13 @@ import type {
   AgentPlanHistoryItem,
   AgentStepState,
   AgentUploadedFile,
+  AliyunSecurityGroupState,
   ClientMessage,
   ConnectionStatus,
   FileInfo,
+  FirewallRuleAction,
+  FirewallRuleProtocol,
+  FirewallState,
   ServerConfig,
   ServerOverview,
   ServerMessage
@@ -80,6 +84,10 @@ export function useWebShell() {
   const [reconnectMessage, setReconnectMessage] = useState<string>();
   const [serverOverview, setServerOverview] = useState<ServerOverview>();
   const [serverOverviewLoading, setServerOverviewLoading] = useState(false);
+  const [firewallState, setFirewallState] = useState<FirewallState>();
+  const [firewallLoading, setFirewallLoading] = useState(false);
+  const [aliyunSecurityGroups, setAliyunSecurityGroups] = useState<AliyunSecurityGroupState>();
+  const [aliyunSecurityGroupsLoading, setAliyunSecurityGroupsLoading] = useState(false);
 
   const updateAgentHistory = useCallback((updater: (current: AgentPlanHistoryItem[]) => AgentPlanHistoryItem[]) => {
     setAgentHistory((current) => writeAgentHistory(updater(current)));
@@ -192,6 +200,15 @@ export function useWebShell() {
         case "server.overview":
           setServerOverview(message.overview);
           setServerOverviewLoading(false);
+          break;
+        case "firewall.state":
+          setFirewallState(message.state);
+          setFirewallLoading(false);
+          setServerOverviewLoading(false);
+          break;
+        case "cloud.aliyun-security-groups":
+          setAliyunSecurityGroups(message.state);
+          setAliyunSecurityGroupsLoading(false);
           break;
         case "file.list":
           setDirectoryCache((current) => ({ ...current, [message.path]: message.files }));
@@ -345,6 +362,12 @@ export function useWebShell() {
           if (message.requestType === "server.overview") {
             setServerOverviewLoading(false);
           }
+          if (message.requestType?.startsWith("firewall.")) {
+            setFirewallLoading(false);
+          }
+          if (message.requestType === "cloud.aliyun-security-groups") {
+            setAliyunSecurityGroupsLoading(false);
+          }
           if (message.requestId) {
             const pendingUpload = pendingAgentUploadsRef.current.get(message.requestId);
             if (pendingUpload) {
@@ -464,6 +487,8 @@ export function useWebShell() {
       setReconnectMessage(undefined);
       setFiles([]);
       setServerOverview(undefined);
+      setFirewallState(undefined);
+      setAliyunSecurityGroups(undefined);
       setActiveFilePath(undefined);
       setFileContent("");
       setDirty(false);
@@ -506,6 +531,8 @@ export function useWebShell() {
     setConnectionName(undefined);
     setFiles([]);
     setServerOverview(undefined);
+    setFirewallState(undefined);
+    setAliyunSecurityGroups(undefined);
     setDirectoryCache({});
     setLoadingDirectories([]);
     setAgentPlan(undefined);
@@ -705,6 +732,32 @@ export function useWebShell() {
     send({ type: "server.overview", requestId: `overview:${++requestSequenceRef.current}` });
   }, [send]);
 
+  const refreshFirewall = useCallback(() => {
+    setFirewallLoading(true);
+    send({ type: "firewall.list", requestId: `firewall-list:${++requestSequenceRef.current}` });
+  }, [send]);
+
+  const addFirewallRule = useCallback(
+    (rule: { action: FirewallRuleAction; source: string; port?: number; protocol?: FirewallRuleProtocol }) => {
+      setFirewallLoading(true);
+      send({ type: "firewall.add", ...rule, requestId: `firewall-add:${++requestSequenceRef.current}` });
+    },
+    [send]
+  );
+
+  const removeFirewallRule = useCallback(
+    (ruleId: string) => {
+      setFirewallLoading(true);
+      send({ type: "firewall.remove", ruleId, requestId: `firewall-remove:${++requestSequenceRef.current}` });
+    },
+    [send]
+  );
+
+  const refreshAliyunSecurityGroups = useCallback(() => {
+    setAliyunSecurityGroupsLoading(true);
+    send({ type: "cloud.aliyun-security-groups", requestId: `aliyun-security-groups:${++requestSequenceRef.current}` });
+  }, [send]);
+
   const readFile = useCallback((path: string) => send({ type: "file.read", path }), [send]);
 
   const saveFile = useCallback(() => {
@@ -831,6 +884,10 @@ export function useWebShell() {
     reconnectMessage,
     serverOverview,
     serverOverviewLoading,
+    firewallState,
+    firewallLoading,
+    aliyunSecurityGroups,
+    aliyunSecurityGroupsLoading,
     connect,
     disconnect,
     reconnectNow,
@@ -840,6 +897,10 @@ export function useWebShell() {
     sendTerminalInput,
     resizeTerminal,
     refreshServerOverview,
+    refreshFirewall,
+    addFirewallRule,
+    removeFirewallRule,
+    refreshAliyunSecurityGroups,
     listFiles,
     loadDirectory,
     readFile,
