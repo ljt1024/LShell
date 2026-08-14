@@ -15,6 +15,7 @@ import {
   Button,
   Drawer,
   Input,
+  Modal,
   Popconfirm,
   Space,
   Table,
@@ -25,7 +26,10 @@ import {
   message
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
+import { useState } from "react";
 import type { FileInfo } from "../../types/protocol";
+
+type NameAction = { type: "mkdir" } | { type: "rename"; file: FileInfo };
 
 interface FileManagerProps {
   connected: boolean;
@@ -64,6 +68,9 @@ export function FileManager({
   onUpload,
   onDownload
 }: FileManagerProps) {
+  const [nameAction, setNameAction] = useState<NameAction>();
+  const [nameInput, setNameInput] = useState("");
+
   const columns: ColumnsType<FileInfo> = [
     {
       title: "名称",
@@ -120,7 +127,7 @@ export function FileManager({
             </>
           )}
           <Tooltip title="重命名">
-            <Button size="small" type="text" onClick={() => handleRename(file)} icon={<EditOutlined />} />
+            <Button size="small" type="text" onClick={() => openRename(file)} icon={<EditOutlined />} />
           </Tooltip>
           <Popconfirm title="删除远程项目" okText="删除" cancelText="取消" onConfirm={() => onRemove(file.path)}>
             <Button size="small" type="text" danger icon={<DeleteOutlined />} />
@@ -138,20 +145,37 @@ export function FileManager({
     )
   }));
 
-  const handleMkdir = () => {
-    const name = window.prompt("目录名称");
-    if (!name) {
-      return;
-    }
-    onMkdir(joinPath(currentPath, name));
+  const openMkdir = () => {
+    setNameInput("");
+    setNameAction({ type: "mkdir" });
   };
 
-  const handleRename = (file: FileInfo) => {
-    const nextName = window.prompt("新名称", file.name);
-    if (!nextName || nextName === file.name) {
+  const openRename = (file: FileInfo) => {
+    setNameInput(file.name);
+    setNameAction({ type: "rename", file });
+  };
+
+  const closeNameModal = () => {
+    setNameAction(undefined);
+    setNameInput("");
+  };
+
+  const submitNameAction = () => {
+    if (!nameAction) {
       return;
     }
-    onRename(file.path, joinPath(dirname(file.path), nextName));
+    const name = nameInput.trim();
+    const validationError = validateRemoteName(name);
+    if (validationError) {
+      message.warning(validationError);
+      return;
+    }
+    if (nameAction.type === "mkdir") {
+      onMkdir(joinPath(currentPath, name));
+    } else if (name !== nameAction.file.name) {
+      onRename(nameAction.file.path, joinPath(dirname(nameAction.file.path), name));
+    }
+    closeNameModal();
   };
 
   return (
@@ -172,7 +196,7 @@ export function FileManager({
             <Button disabled={!connected} icon={<ReloadOutlined />} onClick={() => onList(currentPath)} />
           </Tooltip>
           <Tooltip title="新建目录">
-            <Button disabled={!connected} icon={<FolderAddOutlined />} onClick={handleMkdir} />
+            <Button disabled={!connected} icon={<FolderAddOutlined />} onClick={openMkdir} />
           </Tooltip>
           <Upload
             showUploadList={false}
@@ -233,8 +257,44 @@ export function FileManager({
           spellCheck={false}
         />
       </Drawer>
+
+      <Modal
+        title={nameAction?.type === "rename" ? "重命名远程项目" : "新建目录"}
+        open={Boolean(nameAction)}
+        okText={nameAction?.type === "rename" ? "保存" : "创建"}
+        cancelText="取消"
+        onOk={submitNameAction}
+        onCancel={closeNameModal}
+        okButtonProps={{ disabled: !nameInput.trim() }}
+        destroyOnClose
+      >
+        <Input
+          autoFocus
+          value={nameInput}
+          placeholder={nameAction?.type === "rename" ? "输入新名称" : "输入目录名称"}
+          onChange={(event) => setNameInput(event.target.value)}
+          onPressEnter={submitNameAction}
+        />
+        <Typography.Text type="secondary">名称不能包含斜杠，也不能使用 . 或 ..</Typography.Text>
+      </Modal>
     </section>
   );
+}
+
+function validateRemoteName(name: string): string | undefined {
+  if (!name) {
+    return "名称不能为空";
+  }
+  if (name === "." || name === "..") {
+    return "名称不能使用 . 或 ..";
+  }
+  if (name.includes("/") || name.includes("\\")) {
+    return "名称不能包含斜杠";
+  }
+  if (name.includes("\0")) {
+    return "名称包含无效字符";
+  }
+  return undefined;
 }
 
 function createBreadcrumb(path: string) {
