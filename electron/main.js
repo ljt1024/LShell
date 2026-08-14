@@ -6,6 +6,7 @@ const { spawn } = require("node:child_process");
 const { app, BrowserWindow, Menu, dialog, ipcMain, shell } = require("electron");
 
 const PROJECT_ROOT = path.resolve(__dirname, "..");
+const BACKEND_CWD = app.isPackaged ? process.resourcesPath : PROJECT_ROOT;
 const BACKEND_ENTRY = path.join(PROJECT_ROOT, "backend", "dist", "index.js");
 const FRONTEND_INDEX = path.join(PROJECT_ROOT, "frontend", "dist", "index.html");
 
@@ -89,7 +90,7 @@ async function ensureBackend() {
   const url = `http://${loadHost}:${selectedPort}`;
 
   backendProcess = spawn(process.execPath, [BACKEND_ENTRY], {
-    cwd: PROJECT_ROOT,
+    cwd: BACKEND_CWD,
     env: {
       ...process.env,
       ELECTRON_RUN_AS_NODE: "1",
@@ -113,6 +114,9 @@ async function ensureBackend() {
       console.log(`[backend] exited with code=${code ?? "null"} signal=${signal ?? "null"}`);
     }
     backendProcess = null;
+  });
+  backendProcess.once("error", (error) => {
+    console.error(`[backend] failed to start: ${error.message}`);
   });
 
   await waitForHealth(url, 12_000, true);
