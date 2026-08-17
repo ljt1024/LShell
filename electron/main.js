@@ -1,5 +1,6 @@
 const fs = require("node:fs");
 const http = require("node:http");
+const https = require("node:https");
 const net = require("node:net");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
@@ -9,6 +10,7 @@ const PROJECT_ROOT = path.resolve(__dirname, "..");
 const BACKEND_CWD = app.isPackaged ? process.resourcesPath : PROJECT_ROOT;
 const BACKEND_ENTRY = path.join(PROJECT_ROOT, "backend", "dist", "index.js");
 const FRONTEND_INDEX = path.join(PROJECT_ROOT, "frontend", "dist", "index.html");
+const PRODUCTION_BACKEND_URL = "https://shell.longjiangtao.top";
 
 let mainWindow = null;
 let backendProcess = null;
@@ -63,6 +65,13 @@ app.on("before-quit", () => {
 });
 
 async function ensureBackend() {
+  const remoteBackendUrl = process.env.LSHELL_BACKEND_URL || (app.isPackaged ? PRODUCTION_BACKEND_URL : "");
+  if (remoteBackendUrl) {
+    await waitForHealth(remoteBackendUrl, 12_000, true);
+    managedBackend = false;
+    return remoteBackendUrl.replace(/\/$/, "");
+  }
+
   if (!fs.existsSync(BACKEND_ENTRY)) {
     throw new Error("后端尚未构建，请先运行 npm run build。");
   }
@@ -317,14 +326,15 @@ async function waitForHealth(url, timeoutMs, throwOnTimeout = false) {
   } while (Date.now() - startedAt < timeoutMs);
 
   if (throwOnTimeout) {
-    throw new Error(`本地后端启动超时：${url}`);
+    throw new Error(`后端连接超时：${url}`);
   }
   return false;
 }
 
 function checkHealth(url) {
   return new Promise((resolve) => {
-    const request = http.get(`${url}/api/health`, (response) => {
+    const client = url.startsWith("https:") ? https : http;
+    const request = client.get(`${url}/api/health`, (response) => {
       response.resume();
       resolve(response.statusCode === 200);
     });
@@ -338,7 +348,8 @@ function checkHealth(url) {
 
 function checkFrontend(url) {
   return new Promise((resolve) => {
-    const request = http.get(url, (response) => {
+    const client = url.startsWith("https:") ? https : http;
+    const request = client.get(url, (response) => {
       const contentType = response.headers["content-type"] || "";
       response.resume();
       resolve(response.statusCode === 200 && String(contentType).includes("text/html"));

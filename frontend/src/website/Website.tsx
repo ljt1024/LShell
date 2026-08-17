@@ -32,8 +32,8 @@ const abilities = [
 
 export default function Website() {
   const [menuOpen, setMenuOpen] = useState(false);
-  const macDownload = "/downloads/LShell-0.1.1-arm64.dmg";
-  const windowsDownload = "/downloads/LShell-Setup-0.1.1.exe";
+  const macDownload = "/downloads/LShell-0.1.2-arm64.dmg";
+  const windowsDownload = "/downloads/LShell-Setup-0.1.2.exe";
 
   return <main className="moe-site">
     <section className="moe-hero" id="top">
@@ -57,7 +57,7 @@ export default function Website() {
         <p className="hero-subtitle"><span>连接远方</span><i />保留现场</p>
         <p className="hero-description">一个集成终端、文件、服务状态与安全规则的远程服务器工作台。<br />照常输入命令，也可以直接用中文说出你要完成的事。</p>
         <div className="hero-actions">
-          <a className="button-dark" href={macDownload}><AppleOutlined /> 下载 macOS 版</a>
+          {/* <a className="button-dark" href={macDownload}><AppleOutlined /> 下载 macOS 版</a> */}
           <a className="button-red" href="#features"><span>↓</span> 查看功能</a>
         </div>
         <div className="hero-orbit orbit-right" aria-hidden="true"><i /><i /><span>PTY</span></div>
@@ -113,7 +113,7 @@ export default function Website() {
 
     <section className="faq-section" id="questions">
       <div className="round-icon blue"><CodeOutlined /></div><h2>问题解答</h2>
-      <div className="faq-list"><article><h3>LShell 还提供 Web 版本吗？</h3><p>不再提供公开 Web 工作台。LShell 以 macOS 和 Windows 桌面客户端交付，本地启动后端服务，连接信息留在你的设备中。</p></article><article><h3>LShell 会替我自动执行所有命令吗？</h3><p>不会。普通命令照常由你控制；中文意图会先生成方案，并根据风险等级决定直接执行或请求确认。</p></article><article><h3>它适合什么样的服务器？</h3><p>适合通过 SSH 管理的 Linux 服务器，尤其是需要频繁查看文件、Nginx、防火墙和运行状态的场景。</p></article></div>
+      <div className="faq-list"><article><h3>LShell 还提供 Web 版本吗？</h3><p>不再提供公开 Web 工作台。LShell 以 macOS 和 Windows 桌面客户端交付，通过加密连接访问 LShell 服务端，再连接你的服务器。</p></article><article><h3>LShell 会替我自动执行所有命令吗？</h3><p>不会。普通命令照常由你控制；中文意图会先生成方案，并根据风险等级决定直接执行或请求确认。</p></article><article><h3>它适合什么样的服务器？</h3><p>适合通过 SSH 管理的 Linux 服务器，尤其是需要频繁查看文件、Nginx、防火墙和运行状态的场景。</p></article></div>
     </section>
 
     <section className="download-section" id="download">
@@ -122,7 +122,7 @@ export default function Website() {
         <a href={macDownload}><AppleOutlined /><div><strong>macOS</strong><span>Apple Silicon · macOS 12+</span></div><DownloadOutlined /></a>
         <a href={windowsDownload}><WindowsOutlined /><div><strong>Windows</strong><span>64 位 · Windows 10+</span></div><DownloadOutlined /></a>
       </div>
-      <small>当前版本 v0.1.1 · macOS 与 Windows 安装包均由本站提供</small>
+      <small>当前版本 v0.1.2 · macOS 与 Windows 安装包均由本站提供</small>
     </section>
     <section className="final-cta"><p>REMOTE OPERATIONS, WITH CONTEXT.</p><h2>远程工作，<br />也可以轻松而清楚。</h2><a href="#download">选择你的客户端 <ArrowRightOutlined /></a></section>
     <footer><a className="moe-brand" href="#top"><span><CodeOutlined /></span><strong>LShell</strong></a><p>© 2026 LShell Remote Workspace</p></footer>
