@@ -1,6 +1,6 @@
 {
   "name": "lshell",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "LShell desktop workspace for remote Linux server operations",
   "author": "LShell",
   "private": true,
@@ -28,6 +28,7 @@
     "appId": "com.lshell.desktop",
     "productName": "LShell",
     "electronDist": "node_modules/electron/dist",
+    "afterPack": "scripts/after-pack.cjs",
     "asar": true,
     "asarUnpack": [
       "node_modules/ssh2/**/*",
