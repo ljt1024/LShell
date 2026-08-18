@@ -1,4 +1,4 @@
-import type { AgentPlan, AgentUploadedFile } from "../models/protocol.js";
+import type { AgentPlan, AgentUploadedFile, AiProviderConfig } from "../models/protocol.js";
 import { normalizeAgentPlan, sanitizeCurrentPath, sanitizeIntent } from "./safety.js";
 
 interface PlanningContext {
@@ -36,14 +36,15 @@ const DEFAULT_MODEL = "qwen-plus";
 export async function createAgentPlan(
   intent: string,
   context: PlanningContext,
+  aiConfig: AiProviderConfig,
   callbacks: PlanningCallbacks = {}
 ): Promise<AgentPlan> {
   const cleanIntent = sanitizeIntent(intent);
   const currentPath = sanitizeCurrentPath(context.currentPath);
-  const apiKey = process.env.QWEN_API_KEY || process.env.DASHSCOPE_API_KEY;
+  const apiKey = aiConfig.apiKey.trim();
 
   if (!apiKey) {
-    throw new Error("缺少 QWEN_API_KEY 或 DASHSCOPE_API_KEY，无法调用千问模型");
+    throw new Error("请先在客户端 AI 设置中填写 API Key");
   }
 
   const content = await callQwen(apiKey, [
@@ -67,7 +68,7 @@ export async function createAgentPlan(
         responseLanguage: "zh-CN"
       })
     }
-  ], callbacks.onDelta);
+  ], callbacks.onDelta, aiConfig);
 
   return normalizeNavigationPlan(normalizeAgentPlan(parseJsonObject(content), currentPath), cleanIntent);
 }
@@ -75,10 +76,11 @@ export async function createAgentPlan(
 async function callQwen(
   apiKey: string,
   messages: Array<{ role: "system" | "user"; content: string }>,
-  onDelta?: (delta: string) => void
+  onDelta?: (delta: string) => void,
+  aiConfig?: AiProviderConfig
 ): Promise<string> {
-  const baseUrl = (process.env.QWEN_BASE_URL || DEFAULT_BASE_URL).replace(/\/$/, "");
-  const model = process.env.QWEN_MODEL || DEFAULT_MODEL;
+  const baseUrl = (aiConfig?.baseUrl || DEFAULT_BASE_URL).trim().replace(/\/$/, "");
+  const model = (aiConfig?.model || DEFAULT_MODEL).trim();
   const timeoutMs = clampNumber(Number(process.env.QWEN_TIMEOUT_MS || 30_000), 5_000, 120_000, 30_000);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);

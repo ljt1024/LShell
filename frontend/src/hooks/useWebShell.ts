@@ -8,6 +8,7 @@ import type {
   AgentStepState,
   AgentUploadedFile,
   AliyunSecurityGroupState,
+  AiProviderConfig,
   ClientMessage,
   ConnectionStatus,
   FileInfo,
@@ -24,6 +25,21 @@ type TerminalWriter = (data: string) => void;
 const PERSISTED_SESSION_KEY = "lshell-active-session";
 const MAX_STREAM_CHARS = 30_000;
 const MAX_RECONNECT_DELAY_MS = 10_000;
+const DEFAULT_AI_CONFIG: AiProviderConfig = {
+  apiKey: "",
+  model: "qwen-plus",
+  baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+};
+const AI_CONFIG_KEY = "lshell-ai-config";
+
+function readAiConfig(): AiProviderConfig {
+  try {
+    const value = JSON.parse(window.localStorage.getItem(AI_CONFIG_KEY) || "null") as Partial<AiProviderConfig> | null;
+    return { ...DEFAULT_AI_CONFIG, ...value };
+  } catch {
+    return DEFAULT_AI_CONFIG;
+  }
+}
 
 interface PersistedSession {
   sessionId: string;
@@ -40,6 +56,7 @@ interface PendingAgentUpload {
 }
 
 export function useWebShell() {
+  const [aiConfig, setAiConfigState] = useState<AiProviderConfig>(() => readAiConfig());
   const socketRef = useRef<WebSocket | null>(null);
   const openSocketRef = useRef<(onOpen: (socket: WebSocket) => void) => void>();
   const reconnectTimerRef = useRef<number>();
@@ -794,11 +811,17 @@ export function useWebShell() {
         intent,
         currentPath: currentPathRef.current,
         uploadedFiles: agentUploadedFilesRef.current,
+        aiConfig,
         requestId
       });
     },
-    [replaceAgentStepStates, send]
+    [aiConfig, replaceAgentStepStates, send]
   );
+
+  const setAiConfig = useCallback((next: AiProviderConfig) => {
+    setAiConfigState(next);
+    window.localStorage.setItem(AI_CONFIG_KEY, JSON.stringify(next));
+  }, []);
 
   const executeAgentPlan = useCallback(
     (plan: AgentPlan) => {
@@ -879,6 +902,8 @@ export function useWebShell() {
     agentHistory,
     agentUploadedFiles,
     agentUploading,
+    aiConfig,
+    setAiConfig,
     agentUploadMessage,
     connectionInterrupted,
     reconnectMessage,

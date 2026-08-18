@@ -9,8 +9,9 @@ import {
   MenuUnfoldOutlined,
   ReloadOutlined,
   SafetyCertificateOutlined
+  ,SettingOutlined
 } from "@ant-design/icons";
-import { Alert, Button, ConfigProvider, Layout, Menu, Modal, Space, Tag, Tooltip, Typography, theme } from "antd";
+import { Alert, Button, ConfigProvider, Form, Input, Layout, Menu, Modal, Space, Tag, Tooltip, Typography, theme } from "antd";
 import type { CSSProperties, PointerEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ConnectionPanel } from "./components/Connection/ConnectionPanel";
@@ -32,6 +33,8 @@ export default function App() {
   const [filePanePercent, setFilePanePercent] = useState(58);
   const [workspaceView, setWorkspaceView] = useState<"overview" | "files" | "firewall" | "nginx" | "connection">("connection");
   const [desktopInfo, setDesktopInfo] = useState<LShellDesktopRuntimeInfo>();
+  const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
+  const [aiForm] = Form.useForm();
 
   useEffect(() => {
     if (connected) {
@@ -51,6 +54,11 @@ export default function App() {
       mounted = false;
     };
   }, []);
+
+  const openAiSettings = useCallback(() => {
+    aiForm.setFieldsValue(shell.aiConfig);
+    setAiSettingsOpen(true);
+  }, [aiForm, shell.aiConfig]);
 
   const workspaceStyle = {
     "--file-pane-size": `${filePanePercent}fr`,
@@ -195,6 +203,7 @@ export default function App() {
                 {shell.connectionName || shell.status}
               </Tag>
               {shell.sessionId ? <Tag>{shell.sessionId.slice(0, 8)}</Tag> : null}
+              <Tooltip title="AI 模型设置"><Button type="text" icon={<SettingOutlined />} aria-label="AI 模型设置" onClick={openAiSettings} /></Tooltip>
             </Space>
             <Typography.Text className="header-path">{shell.currentPath}</Typography.Text>
           </Layout.Header>
@@ -271,6 +280,13 @@ export default function App() {
           </Layout.Content>
         </Layout>
       </Layout>
+      <Modal title="AI 模型设置" open={aiSettingsOpen} okText="保存" cancelText="取消" onCancel={() => setAiSettingsOpen(false)} onOk={async () => { const values = await aiForm.validateFields(); shell.setAiConfig(values); setAiSettingsOpen(false); }}>
+        <Form form={aiForm} layout="vertical" initialValues={shell.aiConfig}>
+          <Form.Item name="model" label="模型" rules={[{ required: true, message: "请输入模型名称" }]}><Input placeholder="qwen-plus" /></Form.Item>
+          <Form.Item name="baseUrl" label="Base URL" rules={[{ required: true, type: "url", message: "请输入完整 URL" }]}><Input placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1" /></Form.Item>
+          <Form.Item name="apiKey" label="API Key" rules={[{ required: true, message: "请输入 API Key" }]}><Input.Password placeholder="仅保存在本机" /></Form.Item>
+        </Form>
+      </Modal>
       <Modal
         open={shell.connectionInterrupted}
         title={

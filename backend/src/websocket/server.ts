@@ -197,7 +197,7 @@ export function attachWebSocketServer(server: Server, connections: ConnectionMan
               currentPath: message.currentPath,
               connectionName: session.name,
               uploadedFiles: message.uploadedFiles
-            }, {
+            }, message.aiConfig, {
               onDelta: (delta) => send({ type: "agent.plan.delta", delta, requestId })
             });
             send({ type: "agent.plan", plan, requestId });

@@ -67,6 +67,12 @@ export interface AgentUploadedFile {
   uploadedAt: string;
 }
 
+export interface AiProviderConfig {
+  apiKey: string;
+  model: string;
+  baseUrl: string;
+}
+
 export interface ServerOverview {
   collectedAt: string;
   hostname: string;
@@ -151,7 +157,7 @@ export type ClientMessage =
   | { type: "file.rename"; oldPath: string; newPath: string }
   | { type: "file.upload"; directory: string; fileName: string; contentBase64: string; requestId?: string; size?: number }
   | { type: "file.download"; path: string }
-  | { type: "agent.plan"; intent: string; currentPath: string; uploadedFiles?: AgentUploadedFile[]; requestId?: string }
+  | { type: "agent.plan"; intent: string; currentPath: string; uploadedFiles?: AgentUploadedFile[]; aiConfig: AiProviderConfig; requestId?: string }
   | { type: "agent.execute"; plan: AgentPlan; requestId?: string };
 
 export type ServerMessage =
