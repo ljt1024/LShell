@@ -32,8 +32,8 @@ const abilities = [
 
 export default function Website() {
   const [menuOpen, setMenuOpen] = useState(false);
-  const macDownload = "/downloads/LShell-0.1.2-arm64.dmg";
-  const windowsDownload = "/downloads/LShell-Setup-0.1.2.exe";
+  const macDownload = "/downloads/LShell-0.1.3-arm64.dmg";
+  const windowsDownload = "/downloads/LShell-Setup-0.1.3.exe";
 
   return <main className="moe-site">
     <section className="moe-hero" id="top">
@@ -122,7 +122,7 @@ export default function Website() {
         <a href={macDownload}><AppleOutlined /><div><strong>macOS</strong><span>Apple Silicon · macOS 12+</span></div><DownloadOutlined /></a>
         <a href={windowsDownload}><WindowsOutlined /><div><strong>Windows</strong><span>64 位 · Windows 10+</span></div><DownloadOutlined /></a>
       </div>
-      <small>当前版本 v0.1.2 · macOS 与 Windows 安装包均由本站提供</small>
+      <small>当前版本 v0.1.3 · macOS 与 Windows 安装包均由本站提供</small>
     </section>
     <section className="final-cta"><p>REMOTE OPERATIONS, WITH CONTEXT.</p><h2>远程工作，<br />也可以轻松而清楚。</h2><a href="#download">选择你的客户端 <ArrowRightOutlined /></a></section>
     <footer><a className="moe-brand" href="#top"><span><CodeOutlined /></span><strong>LShell</strong></a><p>© 2026 LShell Remote Workspace</p></footer>
