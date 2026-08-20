@@ -1,0 +1,25 @@
+extends: null
+appId: com.lshell.desktop
+productName: LShell
+asar: true
+asarUnpack:
+  - node_modules/ssh2/**/*
+  - node_modules/cpu-features/**/*
+npmRebuild: false
+directories:
+  output: release
+  buildResources: build
+files:
+  - backend/dist/**/*
+  - backend/package.json
+  - frontend/dist/**/*
+  - electron/**/*
+  - package.json
+win:
+  icon: build/icon.png
+  artifactName: LShell-Setup-${version}.${ext}
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true

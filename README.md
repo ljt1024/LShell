@@ -82,7 +82,20 @@ npm run desktop
 
 桌面端默认读取 `.env` 中的 `HOST` 和 `PORT`，并通过本地后端托管 `frontend/dist`。如果配置端口已被开发后端占用，桌面端会自动选择下一个可用端口。窗口尺寸和位置会保存在 Electron 用户数据目录中。
 
-当前项目使用 Electron 37。Electron 二进制默认从官方 GitHub Releases 下载。如果 macOS 报告应用签名损坏或“包含恶意内容”，不要关闭 Gatekeeper；应重新安装依赖并校验 Electron 下载文件，开发环境需要时仅对 `node_modules` 中的本地 Electron 副本进行 ad-hoc 签名。
+当前项目使用 Electron 37。Electron 二进制默认从官方 GitHub Releases 下载。发布构建如果未配置 Apple Developer ID，会使用 Ad-hoc 签名；这种安装包首次运行可能被 macOS Gatekeeper 提示“Apple 无法验证 LShell 是否包含可能危害 Mac 安全或泄漏隐私的恶意软件”。这表示应用未完成 Apple 公证，不代表已检测到恶意软件。
+
+macOS 首次打开未公证安装包：
+
+1. 将 `LShell.app` 拖到“应用程序”目录。
+2. 在 Finder 中右键点击 LShell，选择“打开”，然后在确认对话框中再次点击“打开”。
+3. 如果仍被阻止，可在终端移除下载隔离标记后启动：
+
+```bash
+xattr -dr com.apple.quarantine /Applications/LShell.app
+open /Applications/LShell.app
+```
+
+要让用户直接双击且不出现此提示，需要使用 Apple Developer ID 对 App/DMG 签名并完成 Apple 公证；这需要有效的 Apple 开发者账号、签名证书和公证凭据。
 
 ## 构建与检查
 
