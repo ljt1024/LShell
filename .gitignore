@@ -7,3 +7,4 @@ dist
 frontend/.vite
 frontend/dist
 backend/dist
+release

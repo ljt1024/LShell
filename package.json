@@ -1,7 +1,10 @@
 {
   "name": "lshell",
-  "version": "0.1.0",
+  "version": "0.1.5",
+  "description": "LShell desktop workspace for remote Linux server operations",
+  "author": "LShell",
   "private": true,
+  "main": "electron/main.js",
   "workspaces": [
     "backend",
     "frontend"
@@ -9,10 +12,65 @@
   "scripts": {
     "dev:backend": "npm --workspace backend run dev",
     "dev:frontend": "npm --workspace frontend run dev",
+    "dev:desktop": "npm run build && node electron/start.js",
+    "desktop": "npm run build && node electron/start.js",
+    "screenshots:marketing": "node scripts/capture-marketing-screenshots.mjs",
+    "icon:generate": "node scripts/generate-app-icon.mjs",
     "build": "npm --workspace backend run build && npm --workspace frontend run build",
-    "typecheck": "npm --workspace backend run typecheck && npm --workspace frontend run typecheck"
+    "typecheck": "npm --workspace backend run typecheck && npm --workspace frontend run typecheck",
+    "dist:mac": "npm run build && electron-builder --mac dmg --arm64 --publish never",
+    "dist:win": "npm run build && electron-builder --win nsis --x64 --publish never"
   },
   "engines": {
     "node": ">=18.20.0"
+  },
+  "build": {
+    "appId": "com.lshell.desktop",
+    "productName": "LShell",
+    "electronDist": "node_modules/electron/dist",
+    "afterPack": "scripts/after-pack.cjs",
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/ssh2/**/*",
+      "node_modules/cpu-features/**/*"
+    ],
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "backend/dist/**/*",
+      "backend/package.json",
+      "frontend/dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "icon": "build/icon.icns",
+      "category": "public.app-category.developer-tools",
+      "artifactName": "LShell-${version}-${arch}.${ext}",
+      "identity": null
+    },
+    "dmg": {
+      "title": "LShell ${version}"
+    },
+    "win": {
+      "icon": "build/icon.png",
+      "artifactName": "LShell-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  },
+  "dependencies": {
+    "@lshell/backend": "*"
+  },
+  "devDependencies": {
+    "electron": "^37.10.3",
+    "electron-builder": "^26.15.3",
+    "playwright": "^1.62.1"
   }
 }

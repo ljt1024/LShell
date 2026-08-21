@@ -11,6 +11,8 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
+    "@alicloud/ecs20140526": "^7.9.6",
+    "@alicloud/openapi-client": "^0.4.15",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",

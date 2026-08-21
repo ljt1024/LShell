@@ -1,7 +1,13 @@
 import type { Server } from "node:http";
 import { WebSocket, WebSocketServer } from "ws";
 import type { RawData } from "ws";
+import { assertExecutablePlan } from "../agent/safety.js";
+import { createAgentPlan } from "../agent/qwenClient.js";
 import type { ClientMessage, ServerMessage } from "../models/protocol.js";
+import { collectServerOverview } from "../monitor/collectOverview.js";
+import { addFirewallRule, readFirewallState, removeFirewallRule } from "../firewall/manageFirewall.js";
+import { readAliyunSecurityGroups } from "../cloud/aliyunSecurityGroups.js";
+import { joinRemotePath, normalizeRemotePath } from "../sftp/remotePath.js";
 import { ConnectionManager } from "../ssh/ConnectionManager.js";
 import { normalizeServerConfig } from "../utils/validation.js";
 
@@ -95,6 +101,36 @@ export function attachWebSocketServer(server: Server, connections: ConnectionMan
             break;
           }
 
+          case "server.overview": {
+            const overview = await collectServerOverview(requireSession());
+            send({ type: "server.overview", overview, requestId: message.requestId });
+            break;
+          }
+
+          case "firewall.list": {
+            const state = await readFirewallState(requireSession());
+            send({ type: "firewall.state", state, requestId: message.requestId });
+            break;
+          }
+
+          case "firewall.add": {
+            const state = await addFirewallRule(requireSession(), message);
+            send({ type: "firewall.state", state, requestId: message.requestId });
+            break;
+          }
+
+          case "firewall.remove": {
+            const state = await removeFirewallRule(requireSession(), message.ruleId);
+            send({ type: "firewall.state", state, requestId: message.requestId });
+            break;
+          }
+
+          case "cloud.aliyun-security-groups": {
+            const state = await readAliyunSecurityGroups(requireSession());
+            send({ type: "cloud.aliyun-security-groups", state, requestId: message.requestId });
+            break;
+          }
+
           case "file.list": {
             const files = await requireSession().listDirectory(message.path);
             send({ type: "file.list", path: message.path, files, requestId: message.requestId });
@@ -133,9 +169,12 @@ export function attachWebSocketServer(server: Server, connections: ConnectionMan
 
           case "file.upload": {
             const buffer = Buffer.from(message.contentBase64, "base64");
-            const targetPath = `${message.directory.replace(/\/$/, "")}/${message.fileName}`;
-            await requireSession().writeBuffer(targetPath, buffer);
-            send({ type: "file.uploaded", path: targetPath });
+            const session = requireSession();
+            const directory = normalizeRemotePath(message.directory);
+            const targetPath = joinRemotePath(directory, message.fileName);
+            await session.mkdirp(directory);
+            await session.writeBuffer(targetPath, buffer);
+            send({ type: "file.uploaded", path: targetPath, requestId: message.requestId, size: message.size });
             break;
           }
 
@@ -147,6 +186,60 @@ export function attachWebSocketServer(server: Server, connections: ConnectionMan
               fileName: message.path.split("/").pop() || "download",
               contentBase64: buffer.toString("base64")
             });
+            break;
+          }
+
+          case "agent.plan": {
+            const session = requireSession();
+            const { requestId } = message;
+            send({ type: "agent.plan.started", requestId });
+            const plan = await createAgentPlan(message.intent, {
+              currentPath: message.currentPath,
+              connectionName: session.name,
+              uploadedFiles: message.uploadedFiles
+            }, message.aiConfig, {
+              onDelta: (delta) => send({ type: "agent.plan.delta", delta, requestId })
+            });
+            send({ type: "agent.plan", plan, requestId });
+            send({ type: "agent.plan.finished", requestId });
+            break;
+          }
+
+          case "agent.execute": {
+            const session = requireSession();
+            const { requestId } = message;
+            const plan = assertExecutablePlan(message.plan);
+
+            let ok = true;
+            for (const step of plan.steps) {
+              send({ type: "agent.step.started", stepId: step.id, requestId });
+              const result = await session.execCommand(step.command, {
+                cwd: plan.currentPath,
+                onData: (stream, data) =>
+                  send({ type: "agent.step.output", stepId: step.id, stream, data, requestId })
+              });
+              send({ type: "agent.step.finished", stepId: step.id, result, requestId });
+
+              if (result.exitCode !== 0) {
+                ok = false;
+                send({
+                  type: "agent.execution.finished",
+                  ok: false,
+                  message: `步骤「${step.title}」失败，已停止后续执行`,
+                  requestId
+                });
+                break;
+              }
+            }
+
+            if (ok) {
+              send({
+                type: "agent.execution.finished",
+                ok: true,
+                message: "智能体计划执行完成",
+                requestId
+              });
+            }
             break;
           }
         }
