@@ -6,7 +6,7 @@ const MANAGED_COMMENT = "LShell";
 
 export async function readFirewallState(session: SSHSession): Promise<FirewallState> {
   const provider = await detectProvider(session);
-  if (provider === "ufw") {
+  if (provider === "ufw" || provider === "ufw-inactive") {
     return readUfwState(session);
   }
   if (provider === "firewalld") {
@@ -24,7 +24,7 @@ export async function addFirewallRule(
   const protocol = validateProtocol(input.protocol, port);
   const provider = await detectProvider(session);
 
-  if (provider === "ufw") {
+  if (provider === "ufw" || provider === "ufw-inactive") {
     const destination = port ? ` to any port ${port}${protocol === "any" ? "" : ` proto ${protocol}`}` : "";
     await execute(session, `sudo -n ufw ${input.action} from ${source}${destination} comment '${MANAGED_COMMENT}'`);
   } else if (provider === "firewalld") {
@@ -68,7 +68,9 @@ export async function removeFirewallRule(session: SSHSession, ruleId: string): P
 }
 
 async function detectProvider(session: SSHSession): Promise<string> {
-  const result = await session.execCommand("if command -v ufw >/dev/null 2>&1; then echo ufw; elif command -v firewall-cmd >/dev/null 2>&1; then echo firewalld; elif command -v iptables >/dev/null 2>&1; then echo iptables; else echo none; fi");
+  const result = await session.execCommand(
+    "if command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state 2>/dev/null | grep -q '^running$'; then echo firewalld; elif command -v ufw >/dev/null 2>&1 && (sudo -n ufw status 2>/dev/null || ufw status 2>/dev/null) | grep -q '^Status: active'; then echo ufw; elif command -v ufw >/dev/null 2>&1; then echo ufw-inactive; elif command -v iptables >/dev/null 2>&1; then echo iptables; else echo none; fi"
+  );
   return result.stdout.trim().split(/\s+/)[0] || "none";
 }
 
@@ -80,7 +82,12 @@ async function readUfwState(session: SSHSession): Promise<FirewallState> {
   const lines = result.stdout.split(/\r?\n/);
   const enabled = !/^Status:\s+inactive/im.test(result.stdout);
   const rules = lines.map(parseUfwRule).filter((rule): rule is FirewallRule => Boolean(rule));
-  return { provider: "ufw", enabled, rules };
+  return {
+    provider: "ufw",
+    enabled,
+    rules,
+    warning: enabled ? undefined : "UFW 规则已写入，但 UFW 当前未启用，因此不会实际拦截或放行流量。请确认 SSH 放行规则后再手动执行 ufw enable。"
+  };
 }
 
 function parseUfwRule(line: string): FirewallRule | undefined {
