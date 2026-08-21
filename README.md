@@ -1,6 +1,21 @@
 # LShell
 
-LShell 是一个面向远程 Linux 服务器管理的 Web/Electron 控制台。它保留完整的 SSH shell 使用体验，并在终端中集成自然语言命令助手，同时提供文件管理、服务器状态、防火墙、Nginx 和访问来源可视化能力。
+LShell 是一个面向远程 Linux 服务器管理的桌面工作台。它保留完整的 SSH shell 使用体验，并在终端中集成自然语言命令助手，同时提供文件管理、服务器状态、防火墙、Nginx 和访问来源可视化能力。
+
+## 界面预览
+
+官网介绍使用的产品截图也随项目提供，展示服务器概览、远程目录、文件浏览器和终端协同工作的完整场景。
+
+<table>
+  <tr>
+    <td width="50%"><img width="100%" src="assets/image1.png" alt="LShell 服务器概览，展示 CPU、内存、防火墙、Nginx 和磁盘状态" /></td>
+    <td width="50%"><img width="100%" src="assets/image2.png" alt="LShell 服务器目录工作区，展示远程目录树、文件浏览器和终端" /></td>
+  </tr>
+  <tr>
+    <td align="center">服务器概览与服务状态</td>
+    <td align="center">远程文件、目录树与终端</td>
+  </tr>
+</table>
 
 ## 技术栈
 
