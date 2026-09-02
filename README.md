@@ -6,6 +6,8 @@ LShell 是一个类似 FinalShell 的 Web 版远程服务器管理 MVP。当前�
 - 后端：Node.js + Express + ssh2 + ws
 - 实时通信：WebSocket
 
+官网地址： http://118.31.167.0:7272/
+
 ## 当前功能
 
 - SSH 密码认证与私钥认证
